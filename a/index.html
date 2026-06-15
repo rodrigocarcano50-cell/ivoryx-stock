@@ -1,0 +1,1440 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Ivoryx · Gestión de Stock</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        colors: {
+          ivory: {
+            900: '#0B1B33',
+            800: '#102A4C',
+            700: '#16345E',
+            500: '#2E6BD6',
+            300: '#7FB2FF',
+            100: '#E8F0FF',
+          },
+        },
+        fontFamily: { sans: ['Inter','ui-sans-serif','system-ui','sans-serif'] },
+      },
+    },
+  };
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  html,body { font-family: 'Inter', sans-serif; }
+  .scrollbar-thin::-webkit-scrollbar { height: 8px; width: 8px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
+  .dark .scrollbar-thin::-webkit-scrollbar-thumb { background: #334155; }
+</style>
+</head>
+<body class="bg-slate-50 dark:bg-ivory-900 text-slate-800 dark:text-slate-100 min-h-screen">
+
+<!-- App Shell -->
+<div id="app" class="flex min-h-screen">
+  <!-- Sidebar -->
+  <aside id="sidebar" class="hidden md:flex md:flex-col w-64 bg-ivory-900 text-white shrink-0">
+    <div class="px-6 py-5 border-b border-white/10 flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-ivory-500 to-ivory-300 flex items-center justify-center font-extrabold text-ivory-900 text-lg">I</div>
+      <div>
+        <div class="text-lg font-bold tracking-tight">Ivoryx</div>
+        <div class="text-xs text-ivory-300">Gestión de Stock</div>
+      </div>
+    </div>
+    <nav id="nav" class="flex-1 py-4 px-3 space-y-1 text-sm"></nav>
+    <div class="p-4 text-xs text-white/40 border-t border-white/10">v0.1 · MVP local</div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 flex flex-col min-w-0">
+    <!-- Topbar -->
+    <header class="sticky top-0 z-30 bg-white/80 dark:bg-ivory-800/80 backdrop-blur border-b border-slate-200 dark:border-white/10">
+      <div class="flex items-center gap-3 px-4 md:px-8 h-16">
+        <button id="btnMobileNav" class="md:hidden p-2 -ml-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <h1 id="pageTitle" class="text-lg md:text-xl font-semibold">Dashboard</h1>
+        <div class="ml-auto flex items-center gap-2">
+          <div class="relative hidden sm:block">
+            <input id="globalSearch" type="text" placeholder="Buscar producto..." class="w-56 md:w-72 pl-9 pr-3 py-2 rounded-xl bg-slate-100 dark:bg-white/5 text-sm focus:outline-none focus:ring-2 focus:ring-ivory-500" />
+            <svg class="w-4 h-4 absolute left-3 top-2.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"/></svg>
+          </div>
+          <button id="btnTheme" title="Modo oscuro" class="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-white/10">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+          </button>
+          <button id="btnSettings" title="Configuración" class="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-white/10">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317a1 1 0 011.35 0l.7.633a1 1 0 00.94.245l.91-.244a1 1 0 011.213.728l.245.91a1 1 0 00.683.683l.91.244a1 1 0 01.728 1.214l-.244.91a1 1 0 00.245.94l.633.7a1 1 0 010 1.35l-.633.7a1 1 0 00-.245.94l.244.91a1 1 0 01-.728 1.214l-.91.244a1 1 0 00-.683.684l-.245.91a1 1 0 01-1.213.727l-.91-.244a1 1 0 00-.94.245l-.7.633a1 1 0 01-1.35 0l-.7-.633a1 1 0 00-.94-.245l-.91.244a1 1 0 01-1.213-.727l-.245-.91a1 1 0 00-.683-.684l-.91-.244a1 1 0 01-.728-1.214l.244-.91a1 1 0 00-.245-.94l-.633-.7a1 1 0 010-1.35l.633-.7a1 1 0 00.245-.94l-.244-.91a1 1 0 01.728-1.214l.91-.244a1 1 0 00.683-.683l.245-.91a1 1 0 011.213-.728l.91.244a1 1 0 00.94-.245l.7-.633zM12 15a3 3 0 100-6 3 3 0 000 6z"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <section id="view" class="flex-1 px-4 md:px-8 py-6 md:py-8 max-w-[1400px] w-full mx-auto"></section>
+  </main>
+</div>
+
+<!-- Modal root -->
+<div id="modalRoot"></div>
+
+<!-- Toast root -->
+<div id="toastRoot" class="fixed bottom-5 right-5 z-50 space-y-2"></div>
+
+<script>
+// =====================================================================
+//  IVORYX · MVP single-file app
+//  Persistencia: localStorage   ·   Stack futuro: React + Node + SQLite
+// =====================================================================
+
+const STORAGE_KEY = 'ivoryx.v1';
+const CFG_KEY = 'ivoryx.supabase';
+const CATEGORIES = ['Fundas','Celulares','Templados','Cargadores','Auriculares','Bolsas','Tarjetas','Otros'];
+const COLOR_CATEGORIES = new Set(['Fundas','Celulares']);
+
+// ---------------- Supabase ----------------
+let supa = null;
+let cloudReady = false;
+
+function loadCfg() {
+  try { return JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); } catch { return null; }
+}
+function saveCfg(cfg) { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); }
+function clearCfg() { localStorage.removeItem(CFG_KEY); }
+
+function initSupabase() {
+  const cfg = loadCfg();
+  if (!cfg?.url || !cfg?.key || !window.supabase) { supa = null; cloudReady = false; return false; }
+  supa = window.supabase.createClient(cfg.url, cfg.key);
+  cloudReady = true;
+  return true;
+}
+
+const rowToProduct = r => ({
+  id: r.id, name: r.name, category: r.category, model: r.model || '', color: r.color || '',
+  sku: r.sku || '', stock: r.stock, buyPrice: r.buy_price, sellPrice: r.sell_price,
+  battery: r.battery ?? null,
+  createdAt: r.created_at,
+});
+const productToRow = p => ({
+  id: p.id, name: p.name, category: p.category, model: p.model || null, color: p.color || null,
+  sku: p.sku || null, stock: p.stock, buy_price: p.buyPrice, sell_price: p.sellPrice,
+  battery: p.battery ?? null,
+  created_at: p.createdAt,
+});
+const rowToMov = r => ({
+  id: r.id, productId: r.product_id, type: r.type, qty: r.qty,
+  unitCost: r.unit_cost, unitPrice: r.unit_price, date: r.date, note: r.note || '',
+  customerId: r.customer_id || null,
+});
+const movToRow = m => ({
+  id: m.id, product_id: m.productId, type: m.type, qty: m.qty,
+  unit_cost: m.unitCost ?? null, unit_price: m.unitPrice ?? null, date: m.date, note: m.note || null,
+  customer_id: m.customerId || null,
+});
+const rowToCustomer = r => ({
+  id: r.id, firstName: r.first_name || '', lastName: r.last_name || '', phone: r.phone || '',
+  createdAt: r.created_at,
+});
+const customerToRow = c => ({
+  id: c.id, first_name: c.firstName || null, last_name: c.lastName || null,
+  phone: c.phone || null, created_at: c.createdAt,
+});
+
+async function cloudLoad() {
+  if (!cloudReady) return null;
+  const [p, m, c] = await Promise.all([
+    supa.from('products').select('*').order('created_at'),
+    supa.from('movements').select('*').order('date', { ascending: false }),
+    supa.from('customers').select('*').order('created_at'),
+  ]);
+  if (p.error) throw p.error;
+  if (m.error) throw m.error;
+  if (c.error && c.error.code !== '42P01') throw c.error; // tabla puede no existir aún
+  return {
+    products: p.data.map(rowToProduct),
+    movements: m.data.map(rowToMov),
+    customers: (c.data || []).map(rowToCustomer),
+  };
+}
+async function cloudUpsertCustomer(c) {
+  if (!cloudReady) return;
+  const { error } = await supa.from('customers').upsert(customerToRow(c));
+  if (error) throw error;
+}
+async function cloudDeleteCustomer(id) {
+  if (!cloudReady) return;
+  await supa.from('movements').update({ customer_id: null }).eq('customer_id', id);
+  const { error } = await supa.from('customers').delete().eq('id', id);
+  if (error) throw error;
+}
+async function cloudUpsertProduct(p) {
+  if (!cloudReady) return;
+  const { error } = await supa.from('products').upsert(productToRow(p));
+  if (error) throw error;
+}
+async function cloudDeleteProduct(id) {
+  if (!cloudReady) return;
+  // borra movimientos asociados primero para no romper FK
+  await supa.from('movements').delete().eq('product_id', id);
+  const { error } = await supa.from('products').delete().eq('id', id);
+  if (error) throw error;
+}
+async function cloudInsertMovement(m) {
+  if (!cloudReady) return;
+  const { error } = await supa.from('movements').insert(movToRow(m));
+  if (error) throw error;
+}
+
+// ---------- Estado ----------
+const defaultState = () => ({
+  products: [],     // {id,name,category,model,color,stock,buyPrice,sellPrice,sku,createdAt}
+  movements: [],    // {id,type:'in'|'out'|'adj',productId,qty,unitCost,unitPrice,date,note,customerId}
+  customers: [],    // {id,firstName,lastName,phone,createdAt}
+  settings: {
+    theme: 'light',
+    currency: 'ARS',
+    lowStock: 5,
+    criticalStock: 2,
+    business: 'Ivoryx',
+  },
+});
+
+let state = load();
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return seed(defaultState());
+    const s = JSON.parse(raw);
+    return { ...defaultState(), ...s, customers: s.customers||[], settings: { ...defaultState().settings, ...(s.settings||{}) } };
+  } catch { return seed(defaultState()); }
+}
+function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+function uid() { return Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4); }
+
+function seed(s) {
+  const now = new Date().toISOString();
+  const demo = [
+    ['Funda Silicona','Fundas','iPhone 13','Negro',6,5000,10000],
+    ['Funda Silicona','Fundas','iPhone 13','Azul',3,5000,10000],
+    ['Funda Silicona','Fundas','iPhone 13','Rosa',3,5000,10000],
+    ['Funda MagSafe','Fundas','iPhone 14 Pro','Negro',5,5500,11000],
+    ['Funda MagSafe','Fundas','iPhone 14 Pro','Blanco',3,5500,11000],
+    ['Funda Transparente','Fundas','iPhone 15 Pro Max','Transparente',4,6000,12500],
+    ['Vidrio 9H','Templados','iPhone 13','',20,1200,3500],
+    ['Vidrio Privacidad','Templados','iPhone 15','',6,1800,4500],
+    ['Cargador 20W USB-C','Cargadores','Universal','',10,3500,7500],
+    ['Auricular cable','Auriculares','Universal','',1,1500,3500],
+    ['Bolsa kraft chica','Bolsas','—','',50,80,250],
+    ['Tarjeta agradecimiento','Tarjetas','—','',100,50,0],
+  ];
+  s.products = demo.map(([name,category,model,color,stock,buyPrice,sellPrice]) => ({
+    id: uid(), name, category, model, color, stock, buyPrice, sellPrice,
+    sku: '', createdAt: now,
+  }));
+  return s;
+}
+
+// Paleta sugerida para fundas — el usuario puede tipear cualquier color libre
+const COLOR_PRESETS = [
+  ['Negro','#111827'], ['Blanco','#F8FAFC'], ['Transparente','transparent'],
+  ['Azul','#2563EB'], ['Celeste','#38BDF8'], ['Rojo','#DC2626'],
+  ['Rosa','#EC4899'], ['Violeta','#7C3AED'], ['Verde','#16A34A'],
+  ['Amarillo','#FACC15'], ['Naranja','#F97316'], ['Gris','#6B7280'],
+  ['Beige','#E7D7B1'], ['Dorado','#D4AF37'], ['Plateado','#C0C0C0'],
+];
+function colorHex(name) {
+  const hit = COLOR_PRESETS.find(([n]) => n.toLowerCase() === (name||'').toLowerCase());
+  return hit ? hit[1] : null;
+}
+function colorChip(name) {
+  if (!name) return '<span class="text-slate-400">—</span>';
+  const hex = colorHex(name) || '#94a3b8';
+  const border = (hex === 'transparent' || hex.toLowerCase() === '#f8fafc') ? 'border border-slate-300' : '';
+  const bg = hex === 'transparent'
+    ? 'background:repeating-conic-gradient(#cbd5e1 0 25%,transparent 0 50%) 50%/8px 8px;'
+    : `background:${hex};`;
+  return `<span class="inline-flex items-center gap-1.5">
+    <span class="w-3.5 h-3.5 rounded-full ${border}" style="${bg}"></span>
+    ${escapeHtml(name)}
+  </span>`;
+}
+
+function batteryChip(pct) {
+  if (pct === null || pct === undefined || pct === '') return '<span class="text-slate-400">—</span>';
+  const n = Math.max(0, Math.min(100, Number(pct)));
+  const color = n >= 80 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
+              : n >= 50 ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
+              : 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300';
+  return `<span class="px-2 py-0.5 text-xs rounded-full font-semibold ${color}">${n}%</span>`;
+}
+
+// ---------- Utils ----------
+const fmt = new Intl.NumberFormat('es-AR',{ style:'currency', currency:'ARS', maximumFractionDigits:0 });
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+const escapeHtml = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function toast(msg, kind='ok') {
+  const colors = { ok:'bg-emerald-600', err:'bg-rose-600', info:'bg-ivory-700' };
+  const el = document.createElement('div');
+  el.className = `${colors[kind]} text-white text-sm px-4 py-2 rounded-xl shadow-lg animate-[fadeIn_.2s_ease]`;
+  el.textContent = msg;
+  $('#toastRoot').appendChild(el);
+  setTimeout(() => el.remove(), 2200);
+}
+
+function todayKey(d=new Date()) { return d.toISOString().slice(0,10); }
+
+// ---------- Routing ----------
+const ROUTES = [
+  { id:'dashboard', label:'Dashboard', icon:'M3 12l2-2 4 4 8-8 4 4' },
+  { id:'category:Fundas', label:'Fundas', icon:'M4 7h16M4 12h16M4 17h10' },
+  { id:'category:Celulares', label:'Celulares', icon:'M7 4h10a1 1 0 011 1v14a1 1 0 01-1 1H7a1 1 0 01-1-1V5a1 1 0 011-1zM11 18h2' },
+  { id:'category:Templados', label:'Templados', icon:'M4 7h16M4 12h16M4 17h10' },
+  { id:'category:Cargadores', label:'Cargadores', icon:'M4 7h16M4 12h16M4 17h10' },
+  { id:'category:Auriculares', label:'Auriculares', icon:'M4 7h16M4 12h16M4 17h10' },
+  { id:'category:Bolsas', label:'Bolsas', icon:'M4 7h16M4 12h16M4 17h10' },
+  { id:'category:Tarjetas', label:'Tarjetas', icon:'M4 7h16M4 12h16M4 17h10' },
+  { id:'category:Otros', label:'Otros', icon:'M4 7h16M4 12h16M4 17h10' },
+  { id:'customers', label:'Clientes', icon:'M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-2a4 4 0 100-8 4 4 0 000 8zm6 0a3 3 0 100-6 3 3 0 000 6z' },
+  { id:'movements', label:'Movimientos', icon:'M4 6h16M4 12h16M4 18h16' },
+  { id:'stats', label:'Estadísticas', icon:'M3 3v18h18M7 15l3-3 3 3 5-5' },
+  { id:'settings', label:'Configuración', icon:'M12 15a3 3 0 100-6 3 3 0 000 6z' },
+];
+
+let currentRoute = 'dashboard';
+function navigate(id) {
+  currentRoute = id;
+  render();
+  history.replaceState(null, '', '#' + id);
+}
+
+function renderNav() {
+  const nav = $('#nav');
+  nav.innerHTML = ROUTES.map(r => `
+    <button data-route="${r.id}" class="route-btn w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition
+      ${currentRoute===r.id ? 'bg-white/10 text-white' : 'text-white/70 hover:bg-white/5 hover:text-white'}">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${r.icon}"/></svg>
+      <span>${r.label}</span>
+    </button>`).join('');
+  $$('#nav .route-btn').forEach(b => b.onclick = () => navigate(b.dataset.route));
+}
+
+// ---------- Stock helpers ----------
+function stockLevel(p) {
+  if (p.stock <= 0) return { label:'Sin stock', color:'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300' };
+  if (p.stock <= state.settings.criticalStock) return { label:'Crítico', color:'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300' };
+  if (p.stock <= state.settings.lowStock) return { label:'Bajo', color:'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300' };
+  return { label:'OK', color:'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' };
+}
+
+// =====================================================================
+//  VIEWS
+// =====================================================================
+
+function viewDashboard() {
+  const total = state.products.reduce((a,p)=>a+p.stock,0);
+  const low = state.products.filter(p => p.stock>0 && p.stock<=state.settings.lowStock).length;
+  const out = state.products.filter(p => p.stock<=0).length;
+  const today = todayKey();
+  const dayMoves = state.movements.filter(m => m.date.slice(0,10)===today);
+  const sales = dayMoves.filter(m=>m.type==='out');
+  const dayUnits = sales.reduce((a,m)=>a+m.qty,0);
+  const dayRevenue = sales.reduce((a,m)=>a+m.qty*(m.unitPrice||0),0);
+  const dayProfit = sales.reduce((a,m)=>{
+    const prod = state.products.find(p=>p.id===m.productId);
+    const cost = m.unitCost ?? prod?.buyPrice ?? 0;
+    return a + m.qty * ((m.unitPrice||0) - cost);
+  },0);
+  const last = [...state.movements].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8);
+  const invValue = state.products.reduce((a,p)=>a+p.stock*p.sellPrice,0);
+
+  return `
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      ${statCard('Productos en stock', total, 'ivory-500', 'unidades totales')}
+      ${statCard('Poco stock', low, 'amber-500', `≤ ${state.settings.lowStock} unidades`)}
+      ${statCard('Agotados', out, 'rose-500', 'sin stock')}
+      ${statCard('Valor inventario', fmt.format(invValue), 'emerald-500', 'precio venta')}
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+      ${statCard('Ventas del día', dayUnits, 'ivory-500', `${sales.length} operaciones`)}
+      ${statCard('Ingresos del día', fmt.format(dayRevenue), 'ivory-500', 'facturado hoy')}
+      ${statCard('Ganancia del día', fmt.format(dayProfit), 'emerald-500', 'margen estimado')}
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-6">
+      <div class="lg:col-span-2 bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 p-5">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-semibold">Últimos movimientos</h3>
+          <button class="text-sm text-ivory-500 hover:underline" data-go="movements">Ver todos →</button>
+        </div>
+        ${last.length ? `
+          <div class="overflow-x-auto scrollbar-thin">
+            <table class="w-full text-sm">
+              <thead class="text-left text-slate-500 dark:text-slate-400">
+                <tr><th class="py-2">Fecha</th><th>Tipo</th><th>Producto</th><th class="text-right">Cant.</th><th class="text-right">Importe</th></tr>
+              </thead>
+              <tbody>
+                ${last.map(m => {
+                  const p = state.products.find(pp=>pp.id===m.productId);
+                  const amount = m.type==='out' ? m.qty*(m.unitPrice||0) : m.qty*(m.unitCost||0);
+                  return `<tr class="border-t border-slate-100 dark:border-white/5">
+                    <td class="py-2">${new Date(m.date).toLocaleString('es-AR')}</td>
+                    <td>${typeBadge(m.type)}</td>
+                    <td>${escapeHtml(p?.name || '—')} <span class="text-slate-400">· ${escapeHtml(p?.model||'')}</span></td>
+                    <td class="text-right">${m.qty}</td>
+                    <td class="text-right">${fmt.format(amount)}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>` : `<p class="text-sm text-slate-500">Aún no hay movimientos.</p>`}
+      </div>
+
+      <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 p-5">
+        <h3 class="font-semibold mb-3">Acciones rápidas</h3>
+        <div class="space-y-2">
+          <button class="w-full px-4 py-3 rounded-xl bg-ivory-500 hover:bg-ivory-700 text-white text-sm font-medium" data-action="new-sale">+ Nueva venta</button>
+          <button class="w-full px-4 py-3 rounded-xl bg-ivory-900 hover:bg-ivory-800 text-white text-sm font-medium" data-action="new-inbound">+ Nuevo ingreso</button>
+          <button class="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-sm font-medium" data-action="new-product">+ Nuevo producto</button>
+        </div>
+        <div class="mt-5 pt-5 border-t border-slate-100 dark:border-white/5">
+          <h4 class="text-sm font-semibold mb-2">Alertas</h4>
+          ${renderAlerts()}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function statCard(label, value, color, hint) {
+  return `<div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 p-5">
+    <div class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">${label}</div>
+    <div class="text-2xl md:text-3xl font-bold mt-1">${value}</div>
+    <div class="text-xs mt-1 text-${color}">${hint}</div>
+  </div>`;
+}
+
+function typeBadge(t) {
+  if (t==='in') return `<span class="inline-flex px-2 py-0.5 text-xs rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">Ingreso</span>`;
+  if (t==='out') return `<span class="inline-flex px-2 py-0.5 text-xs rounded-full bg-ivory-100 text-ivory-700 dark:bg-ivory-500/20 dark:text-ivory-300">Venta</span>`;
+  return `<span class="inline-flex px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-300">Ajuste</span>`;
+}
+
+function renderAlerts() {
+  const alerts = state.products.filter(p => p.stock<=state.settings.lowStock).sort((a,b)=>a.stock-b.stock).slice(0,6);
+  if (!alerts.length) return `<p class="text-sm text-slate-500">Sin alertas. Stock saludable ✨</p>`;
+  return `<ul class="space-y-2 text-sm">${alerts.map(p => {
+    const lvl = stockLevel(p);
+    return `<li class="flex items-center justify-between gap-2">
+      <span class="truncate">${escapeHtml(p.name)} <span class="text-slate-400">${escapeHtml(p.model||'')}</span></span>
+      <span class="px-2 py-0.5 text-xs rounded-full ${lvl.color}">${p.stock} · ${lvl.label}</span>
+    </li>`;
+  }).join('')}</ul>`;
+}
+
+// ---------- Category view ----------
+let listFilters = { q:'', lowOnly:false, color:'' };
+
+function viewCategory(category) {
+  const showColor = COLOR_CATEGORIES.has(category);
+  const items = state.products
+    .filter(p => p.category===category)
+    .filter(p => !listFilters.q || (p.name+p.model+p.sku+(p.color||'')).toLowerCase().includes(listFilters.q.toLowerCase()))
+    .filter(p => !listFilters.lowOnly || p.stock<=state.settings.lowStock)
+    .filter(p => !showColor || !listFilters.color || (p.color||'').toLowerCase() === listFilters.color.toLowerCase());
+
+  const availableColors = showColor
+    ? [...new Set(state.products.filter(p=>p.category===category && p.color).map(p=>p.color))].sort()
+    : [];
+
+  // Resumen por color (solo Fundas) — total de unidades por color en la categoría
+  const colorSummary = showColor
+    ? availableColors.map(c => ({
+        color: c,
+        units: state.products.filter(p=>p.category===category && p.color===c).reduce((a,p)=>a+p.stock,0),
+      })).sort((a,b)=>b.units-a.units)
+    : [];
+
+  return `
+    ${showColor && colorSummary.length ? `
+      <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 p-4 mb-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">Stock por color</div>
+        <div class="flex flex-wrap gap-2">
+          <button data-color-filter="" class="px-3 py-1.5 rounded-full text-xs border ${listFilters.color===''?'bg-ivory-900 text-white border-ivory-900':'border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5'}">Todos</button>
+          ${colorSummary.map(c => `
+            <button data-color-filter="${escapeHtml(c.color)}" class="px-3 py-1.5 rounded-full text-xs border flex items-center gap-2 ${listFilters.color===c.color?'bg-ivory-900 text-white border-ivory-900':'border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5'}">
+              ${colorChip(c.color)} <span class="opacity-70">· ${c.units}</span>
+            </button>`).join('')}
+        </div>
+      </div>` : ''}
+
+    <div class="flex flex-wrap items-center gap-3 mb-4">
+      <div class="relative flex-1 min-w-[200px]">
+        <input id="catSearch" placeholder="Buscar por nombre / modelo / color / SKU" value="${escapeHtml(listFilters.q)}" class="w-full pl-9 pr-3 py-2 rounded-xl bg-white dark:bg-ivory-800 border border-slate-200 dark:border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-ivory-500"/>
+        <svg class="w-4 h-4 absolute left-3 top-2.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"/></svg>
+      </div>
+      <label class="text-sm flex items-center gap-2 select-none">
+        <input id="lowOnly" type="checkbox" ${listFilters.lowOnly?'checked':''} class="rounded"/> Sólo stock bajo
+      </label>
+      <button data-action="new-product" data-category="${category}" class="px-4 py-2 rounded-xl bg-ivory-500 hover:bg-ivory-700 text-white text-sm font-medium">+ Producto</button>
+      <button data-action="export-cat" data-category="${category}" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-sm">Exportar CSV</button>
+    </div>
+
+    <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 overflow-hidden">
+      <div class="overflow-x-auto scrollbar-thin">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 dark:bg-white/5 text-left text-slate-500 dark:text-slate-400">
+            <tr>
+              <th class="px-4 py-3">Producto</th>
+              <th class="px-4 py-3">Modelo</th>
+              ${showColor ? '<th class="px-4 py-3">Color</th>' : ''}
+              ${category==='Celulares' ? '<th class="px-4 py-3 text-right">Batería</th>' : ''}
+              <th class="px-4 py-3 text-right">Stock</th>
+              <th class="px-4 py-3 text-right">P. Compra</th>
+              <th class="px-4 py-3 text-right">P. Venta</th>
+              <th class="px-4 py-3 text-right">Ganancia/u</th>
+              <th class="px-4 py-3">Estado</th>
+              <th class="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.length ? items.map(p => {
+              const lvl = stockLevel(p);
+              return `<tr class="border-t border-slate-100 dark:border-white/5">
+                <td class="px-4 py-3 font-medium">${escapeHtml(p.name)} ${p.sku?`<span class="text-xs text-slate-400 ml-1">${escapeHtml(p.sku)}</span>`:''}</td>
+                <td class="px-4 py-3">${escapeHtml(p.model||'—')}</td>
+                ${showColor ? `<td class="px-4 py-3">${colorChip(p.color)}</td>` : ''}
+                ${category==='Celulares' ? `<td class="px-4 py-3 text-right">${batteryChip(p.battery)}</td>` : ''}
+                <td class="px-4 py-3 text-right font-semibold">${p.stock}</td>
+                <td class="px-4 py-3 text-right">${fmt.format(p.buyPrice)}</td>
+                <td class="px-4 py-3 text-right">${fmt.format(p.sellPrice)}</td>
+                <td class="px-4 py-3 text-right text-emerald-600 dark:text-emerald-300">${fmt.format(p.sellPrice-p.buyPrice)}</td>
+                <td class="px-4 py-3"><span class="px-2 py-0.5 text-xs rounded-full ${lvl.color}">${lvl.label}</span></td>
+                <td class="px-4 py-3 text-right whitespace-nowrap">
+                  <button class="px-2 py-1 text-xs rounded-lg bg-ivory-500 text-white hover:bg-ivory-700" data-action="add-stock" data-id="${p.id}">+ Stock</button>
+                  <button class="px-2 py-1 text-xs rounded-lg bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20" data-action="edit" data-id="${p.id}">Editar</button>
+                  <button class="px-2 py-1 text-xs rounded-lg bg-rose-100 text-rose-700 hover:bg-rose-200" data-action="delete" data-id="${p.id}">Eliminar</button>
+                </td>
+              </tr>`;
+            }).join('') : `<tr><td colspan="${(showColor?9:8) + (category==='Celulares'?1:0)}" class="px-4 py-10 text-center text-slate-500">Sin productos en esta categoría.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// ---------- Movements view ----------
+let movFilters = { from:'', to:'', productId:'', category:'', type:'' };
+
+function viewMovements() {
+  let list = [...state.movements].sort((a,b)=>b.date.localeCompare(a.date));
+  if (movFilters.from) list = list.filter(m => m.date >= movFilters.from);
+  if (movFilters.to)   list = list.filter(m => m.date <= movFilters.to + 'T23:59:59');
+  if (movFilters.productId) list = list.filter(m => m.productId === movFilters.productId);
+  if (movFilters.type) list = list.filter(m => m.type === movFilters.type);
+  if (movFilters.category) {
+    const ids = new Set(state.products.filter(p=>p.category===movFilters.category).map(p=>p.id));
+    list = list.filter(m => ids.has(m.productId));
+  }
+
+  return `
+    <div class="flex flex-wrap items-center gap-3 mb-4">
+      <button data-action="new-sale" class="px-4 py-2 rounded-xl bg-ivory-500 hover:bg-ivory-700 text-white text-sm font-medium">+ Nueva venta</button>
+      <button data-action="new-inbound" class="px-4 py-2 rounded-xl bg-ivory-900 hover:bg-ivory-800 text-white text-sm font-medium">+ Nuevo ingreso</button>
+      <button data-action="export-mov" class="ml-auto px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-sm">Exportar CSV</button>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+      <input id="movFrom" type="date" value="${movFilters.from}" class="px-3 py-2 rounded-xl bg-white dark:bg-ivory-800 border border-slate-200 dark:border-white/10 text-sm"/>
+      <input id="movTo" type="date" value="${movFilters.to}" class="px-3 py-2 rounded-xl bg-white dark:bg-ivory-800 border border-slate-200 dark:border-white/10 text-sm"/>
+      <select id="movType" class="px-3 py-2 rounded-xl bg-white dark:bg-ivory-800 border border-slate-200 dark:border-white/10 text-sm">
+        <option value="">Todos los tipos</option>
+        <option value="in" ${movFilters.type==='in'?'selected':''}>Ingresos</option>
+        <option value="out" ${movFilters.type==='out'?'selected':''}>Ventas</option>
+        <option value="adj" ${movFilters.type==='adj'?'selected':''}>Ajustes</option>
+      </select>
+      <select id="movCategory" class="px-3 py-2 rounded-xl bg-white dark:bg-ivory-800 border border-slate-200 dark:border-white/10 text-sm">
+        <option value="">Todas las categorías</option>
+        ${CATEGORIES.map(c=>`<option ${movFilters.category===c?'selected':''}>${c}</option>`).join('')}
+      </select>
+      <select id="movProduct" class="px-3 py-2 rounded-xl bg-white dark:bg-ivory-800 border border-slate-200 dark:border-white/10 text-sm">
+        <option value="">Todos los productos</option>
+        ${state.products.map(p=>`<option value="${p.id}" ${movFilters.productId===p.id?'selected':''}>${escapeHtml(p.name)} · ${escapeHtml(p.model||'')}</option>`).join('')}
+      </select>
+    </div>
+
+    <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 overflow-hidden">
+      <div class="overflow-x-auto scrollbar-thin">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 dark:bg-white/5 text-left text-slate-500 dark:text-slate-400">
+            <tr>
+              <th class="px-4 py-3">Fecha</th>
+              <th class="px-4 py-3">Tipo</th>
+              <th class="px-4 py-3">Producto</th>
+              <th class="px-4 py-3">Categoría</th>
+              <th class="px-4 py-3 text-right">Cantidad</th>
+              <th class="px-4 py-3 text-right">Unitario</th>
+              <th class="px-4 py-3 text-right">Total</th>
+              <th class="px-4 py-3">Cliente</th>
+              <th class="px-4 py-3">Nota</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${list.length ? list.map(m=>{
+              const p = state.products.find(pp=>pp.id===m.productId);
+              const c = m.customerId ? state.customers.find(cc=>cc.id===m.customerId) : null;
+              const unit = m.type==='out' ? (m.unitPrice||0) : (m.unitCost||0);
+              return `<tr class="border-t border-slate-100 dark:border-white/5">
+                <td class="px-4 py-2 whitespace-nowrap">${new Date(m.date).toLocaleString('es-AR')}</td>
+                <td class="px-4 py-2">${typeBadge(m.type)}</td>
+                <td class="px-4 py-2">${escapeHtml(p?.name||'—')} <span class="text-slate-400">· ${escapeHtml(p?.model||'')}</span></td>
+                <td class="px-4 py-2">${escapeHtml(p?.category||'')}</td>
+                <td class="px-4 py-2 text-right">${m.qty}</td>
+                <td class="px-4 py-2 text-right">${fmt.format(unit)}</td>
+                <td class="px-4 py-2 text-right font-semibold">${fmt.format(unit*m.qty)}</td>
+                <td class="px-4 py-2">${c ? `${escapeHtml(c.firstName)} ${escapeHtml(c.lastName)}<div class="text-xs text-slate-400">${escapeHtml(c.phone)}</div>` : '<span class="text-slate-400">—</span>'}</td>
+                <td class="px-4 py-2 text-slate-500">${escapeHtml(m.note||'')}</td>
+              </tr>`;
+            }).join('') : `<tr><td colspan="9" class="px-4 py-10 text-center text-slate-500">Sin movimientos para los filtros aplicados.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// ---------- Customers ----------
+let customerQuery = '';
+
+function customerStats(id) {
+  const sales = state.movements.filter(m => m.type==='out' && m.customerId===id);
+  const units = sales.reduce((a,m)=>a+m.qty,0);
+  const total = sales.reduce((a,m)=>a+m.qty*(m.unitPrice||0),0);
+  return { count: sales.length, units, total, last: sales[0]?.date };
+}
+
+function viewCustomers() {
+  const q = customerQuery.toLowerCase().trim();
+  const list = state.customers
+    .filter(c => !q || (c.firstName+' '+c.lastName+' '+c.phone).toLowerCase().includes(q))
+    .map(c => ({ c, ...customerStats(c.id) }))
+    .sort((a,b) => (b.last||'').localeCompare(a.last||''));
+
+  return `
+    <div class="flex flex-wrap items-center gap-3 mb-4">
+      <div class="relative flex-1 min-w-[200px]">
+        <input id="custSearch" placeholder="Buscar por nombre, apellido o celular" value="${escapeHtml(customerQuery)}" class="w-full pl-9 pr-3 py-2 rounded-xl bg-white dark:bg-ivory-800 border border-slate-200 dark:border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-ivory-500"/>
+        <svg class="w-4 h-4 absolute left-3 top-2.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"/></svg>
+      </div>
+      <button data-action="new-customer" class="px-4 py-2 rounded-xl bg-ivory-500 hover:bg-ivory-700 text-white text-sm font-medium">+ Cliente</button>
+    </div>
+
+    <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 overflow-hidden">
+      <div class="overflow-x-auto scrollbar-thin">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 dark:bg-white/5 text-left text-slate-500 dark:text-slate-400">
+            <tr>
+              <th class="px-4 py-3">Nombre</th>
+              <th class="px-4 py-3">Apellido</th>
+              <th class="px-4 py-3">Celular</th>
+              <th class="px-4 py-3 text-right">Compras</th>
+              <th class="px-4 py-3 text-right">Unidades</th>
+              <th class="px-4 py-3 text-right">Total gastado</th>
+              <th class="px-4 py-3">Última compra</th>
+              <th class="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${list.length ? list.map(({c,count,units,total,last}) => `
+              <tr class="border-t border-slate-100 dark:border-white/5">
+                <td class="px-4 py-3 font-medium">${escapeHtml(c.firstName||'—')}</td>
+                <td class="px-4 py-3">${escapeHtml(c.lastName||'')}</td>
+                <td class="px-4 py-3"><a href="tel:${escapeHtml(c.phone)}" class="text-ivory-500 hover:underline">${escapeHtml(c.phone||'—')}</a></td>
+                <td class="px-4 py-3 text-right">${count}</td>
+                <td class="px-4 py-3 text-right">${units}</td>
+                <td class="px-4 py-3 text-right font-semibold">${fmt.format(total)}</td>
+                <td class="px-4 py-3 text-slate-500">${last ? new Date(last).toLocaleDateString('es-AR') : '—'}</td>
+                <td class="px-4 py-3 text-right whitespace-nowrap">
+                  <button class="px-2 py-1 text-xs rounded-lg bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20" data-action="view-customer" data-id="${c.id}">Historial</button>
+                  <button class="px-2 py-1 text-xs rounded-lg bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20" data-action="edit-customer" data-id="${c.id}">Editar</button>
+                  <button class="px-2 py-1 text-xs rounded-lg bg-rose-100 text-rose-700 hover:bg-rose-200" data-action="delete-customer" data-id="${c.id}">Eliminar</button>
+                </td>
+              </tr>`).join('') : `<tr><td colspan="8" class="px-4 py-10 text-center text-slate-500">Sin clientes registrados. Se crean automáticamente al cargar una venta.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function customerForm(cust=null) {
+  const c = cust || { firstName:'', lastName:'', phone:'' };
+  openModal(`
+    <h3 class="text-lg font-semibold mb-4">${cust?'Editar':'Nuevo'} cliente</h3>
+    <div class="grid grid-cols-2 gap-3 text-sm">
+      <div>
+        <label class="block mb-1">Nombre *</label>
+        <input id="cFirst" value="${escapeHtml(c.firstName)}" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+      </div>
+      <div>
+        <label class="block mb-1">Apellido</label>
+        <input id="cLast" value="${escapeHtml(c.lastName)}" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+      </div>
+      <div class="col-span-2">
+        <label class="block mb-1">Celular *</label>
+        <input id="cPhone" value="${escapeHtml(c.phone)}" placeholder="11 5555-5555" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5">
+      <button id="cancel" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 text-sm">Cancelar</button>
+      <button id="save" class="px-4 py-2 rounded-xl bg-ivory-500 hover:bg-ivory-700 text-white text-sm font-medium">Guardar</button>
+    </div>
+  `, () => {
+    $('#cancel').onclick = closeModal;
+    $('#save').onclick = () => {
+      const data = {
+        firstName: $('#cFirst').value.trim(),
+        lastName: $('#cLast').value.trim(),
+        phone: $('#cPhone').value.trim(),
+      };
+      if (!data.firstName) return toast('El nombre es obligatorio','err');
+      if (!data.phone) return toast('El celular es obligatorio','err');
+      let target;
+      if (cust) { Object.assign(cust, data); target = cust; }
+      else {
+        target = { id: uid(), createdAt: new Date().toISOString(), ...data };
+        state.customers.push(target);
+      }
+      save(); closeModal(); render(); toast('Cliente guardado');
+      if (cloudReady) cloudUpsertCustomer(target).catch(e => toast('Error nube: '+e.message,'err'));
+    };
+  });
+}
+
+function viewCustomerHistory(id) {
+  const c = state.customers.find(x=>x.id===id);
+  if (!c) return;
+  const sales = state.movements.filter(m=>m.type==='out' && m.customerId===id).sort((a,b)=>b.date.localeCompare(a.date));
+  const total = sales.reduce((a,m)=>a+m.qty*(m.unitPrice||0),0);
+  openModal(`
+    <h3 class="text-lg font-semibold">${escapeHtml(c.firstName)} ${escapeHtml(c.lastName)}</h3>
+    <p class="text-sm text-slate-500 mb-4">${escapeHtml(c.phone)} · ${sales.length} compras · ${fmt.format(total)}</p>
+    <div class="max-h-80 overflow-y-auto scrollbar-thin -mx-2">
+      ${sales.length ? `<table class="w-full text-sm">
+        <thead class="text-left text-slate-500"><tr><th class="px-2 py-1">Fecha</th><th>Producto</th><th class="text-right">Cant.</th><th class="text-right">Total</th></tr></thead>
+        <tbody>
+          ${sales.map(m => {
+            const p = state.products.find(pp=>pp.id===m.productId);
+            return `<tr class="border-t border-slate-100 dark:border-white/5">
+              <td class="px-2 py-1.5 whitespace-nowrap">${new Date(m.date).toLocaleDateString('es-AR')}</td>
+              <td class="px-2 py-1.5">${escapeHtml(p?.name||'—')} <span class="text-slate-400">${escapeHtml(p?.model||'')}</span></td>
+              <td class="px-2 py-1.5 text-right">${m.qty}</td>
+              <td class="px-2 py-1.5 text-right">${fmt.format(m.qty*(m.unitPrice||0))}</td>
+            </tr>`;
+          }).join('')}
+        </tbody></table>` : `<p class="text-sm text-slate-500 py-4 text-center">Sin compras registradas.</p>`}
+    </div>
+    <div class="flex justify-end mt-4">
+      <button id="cancel" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 text-sm">Cerrar</button>
+    </div>
+  `, () => { $('#cancel').onclick = closeModal; });
+}
+
+// ---------- Stats ----------
+function viewStats() {
+  const sales = state.movements.filter(m=>m.type==='out');
+  const byProduct = new Map();
+  for (const m of sales) {
+    const cur = byProduct.get(m.productId) || { qty:0, revenue:0, profit:0 };
+    cur.qty += m.qty;
+    cur.revenue += m.qty * (m.unitPrice||0);
+    const p = state.products.find(pp=>pp.id===m.productId);
+    const cost = m.unitCost ?? p?.buyPrice ?? 0;
+    cur.profit += m.qty * ((m.unitPrice||0)-cost);
+    byProduct.set(m.productId, cur);
+  }
+  const top = [...byProduct.entries()].map(([id,v]) => ({ p: state.products.find(pp=>pp.id===id), ...v }))
+    .filter(x=>x.p).sort((a,b)=>b.qty-a.qty).slice(0,10);
+
+  const totalProfit = sales.reduce((a,m)=>{
+    const p = state.products.find(pp=>pp.id===m.productId);
+    const cost = m.unitCost ?? p?.buyPrice ?? 0;
+    return a + m.qty * ((m.unitPrice||0)-cost);
+  },0);
+  const totalRevenue = sales.reduce((a,m)=>a+m.qty*(m.unitPrice||0),0);
+
+  // Ventas por mes
+  const byMonth = new Map();
+  for (const m of sales) {
+    const k = m.date.slice(0,7);
+    byMonth.set(k, (byMonth.get(k)||0) + m.qty*(m.unitPrice||0));
+  }
+  const months = [...byMonth.entries()].sort();
+  const maxMonth = Math.max(1, ...months.map(([,v])=>v));
+
+  const invValue = state.products.reduce((a,p)=>a+p.stock*p.sellPrice,0);
+
+  return `
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      ${statCard('Ingresos totales', fmt.format(totalRevenue), 'ivory-500', 'históricos')}
+      ${statCard('Ganancia total', fmt.format(totalProfit), 'emerald-500', 'histórica')}
+      ${statCard('Unidades vendidas', sales.reduce((a,m)=>a+m.qty,0), 'ivory-500', `${sales.length} operaciones`)}
+      ${statCard('Valor inventario', fmt.format(invValue), 'emerald-500', 'a precio venta')}
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
+      <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 p-5">
+        <h3 class="font-semibold mb-4">Productos más vendidos</h3>
+        ${top.length ? `<table class="w-full text-sm">
+          <thead class="text-left text-slate-500 dark:text-slate-400">
+            <tr><th class="py-2">Producto</th><th class="text-right">Unidades</th><th class="text-right">Ingreso</th><th class="text-right">Ganancia</th></tr>
+          </thead>
+          <tbody>
+          ${top.map(t=>`<tr class="border-t border-slate-100 dark:border-white/5">
+            <td class="py-2">${escapeHtml(t.p.name)} <span class="text-slate-400">· ${escapeHtml(t.p.model||'')}</span></td>
+            <td class="text-right font-semibold">${t.qty}</td>
+            <td class="text-right">${fmt.format(t.revenue)}</td>
+            <td class="text-right text-emerald-600 dark:text-emerald-300">${fmt.format(t.profit)}</td>
+          </tr>`).join('')}
+          </tbody></table>` : `<p class="text-sm text-slate-500">Aún no hay ventas registradas.</p>`}
+      </div>
+
+      <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 p-5">
+        <h3 class="font-semibold mb-4">Ventas por mes</h3>
+        ${months.length ? `<div class="space-y-2">
+          ${months.map(([k,v])=>`
+            <div>
+              <div class="flex justify-between text-xs text-slate-500 mb-1"><span>${k}</span><span>${fmt.format(v)}</span></div>
+              <div class="h-2 bg-slate-100 dark:bg-white/10 rounded-full overflow-hidden">
+                <div class="h-full bg-gradient-to-r from-ivory-500 to-ivory-300" style="width:${(v/maxMonth*100).toFixed(1)}%"></div>
+              </div>
+            </div>`).join('')}
+        </div>` : `<p class="text-sm text-slate-500">Sin datos suficientes.</p>`}
+      </div>
+    </div>
+  `;
+}
+
+// ---------- Settings ----------
+function viewSettings() {
+  const s = state.settings;
+  const cfg = loadCfg() || { url:'', key:'' };
+  return `
+  <div class="max-w-3xl space-y-6">
+    <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold">Sincronización en la nube (Supabase)</h3>
+        <span class="text-xs px-2 py-1 rounded-full ${cloudReady?'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300':'bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300'}">
+          ${cloudReady?'Conectado':'Sin configurar'}
+        </span>
+      </div>
+      <p class="text-xs text-slate-500 mb-3">Pegá los datos del proyecto Supabase (Settings → API). El SQL para crear las tablas está en <code>README.md</code>.</p>
+      <label class="block text-sm mb-1">Project URL</label>
+      <input id="setSupaUrl" value="${escapeHtml(cfg.url)}" placeholder="https://xxxx.supabase.co" class="w-full px-3 py-2 mb-3 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm"/>
+      <label class="block text-sm mb-1">anon public key</label>
+      <textarea id="setSupaKey" rows="2" placeholder="eyJhbGciOi..." class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm font-mono">${escapeHtml(cfg.key)}</textarea>
+      <div class="flex flex-wrap gap-2 mt-3">
+        <button id="connectSupa" class="px-4 py-2 rounded-xl bg-ivory-500 hover:bg-ivory-700 text-white text-sm font-medium">Conectar y sincronizar</button>
+        <button id="pushSupa" class="px-4 py-2 rounded-xl bg-ivory-900 hover:bg-ivory-800 text-white text-sm">Subir datos locales a la nube</button>
+        <button id="pullSupa" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 text-sm">Bajar datos de la nube</button>
+        <button id="disconnectSupa" class="px-4 py-2 rounded-xl bg-rose-100 text-rose-700 hover:bg-rose-200 text-sm">Desconectar</button>
+      </div>
+    </div>
+
+    <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 p-5">
+      <h3 class="font-semibold mb-4">Negocio</h3>
+      <label class="block text-sm mb-2">Nombre</label>
+      <input id="setBusiness" value="${escapeHtml(s.business)}" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+    </div>
+
+    <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 p-5">
+      <h3 class="font-semibold mb-4">Alertas de stock</h3>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm mb-2">Stock bajo (≤)</label>
+          <input id="setLow" type="number" min="0" value="${s.lowStock}" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+        </div>
+        <div>
+          <label class="block text-sm mb-2">Stock crítico (≤)</label>
+          <input id="setCrit" type="number" min="0" value="${s.criticalStock}" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+        </div>
+      </div>
+      <button id="saveSettings" class="mt-4 px-4 py-2 rounded-xl bg-ivory-500 hover:bg-ivory-700 text-white text-sm font-medium">Guardar</button>
+    </div>
+
+    <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 p-5">
+      <h3 class="font-semibold mb-4">Backup & Datos</h3>
+      <div class="flex flex-wrap gap-3">
+        <button data-action="backup" class="px-4 py-2 rounded-xl bg-ivory-900 hover:bg-ivory-800 text-white text-sm">Exportar backup (JSON)</button>
+        <label class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 text-sm cursor-pointer">
+          Importar backup
+          <input id="fileBackup" type="file" accept="application/json" class="hidden"/>
+        </label>
+        <label class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 text-sm cursor-pointer">
+          Importar productos CSV
+          <input id="fileCsv" type="file" accept=".csv,text/csv" class="hidden"/>
+        </label>
+        <button data-action="reset" class="px-4 py-2 rounded-xl bg-rose-100 text-rose-700 hover:bg-rose-200 text-sm">Borrar todo</button>
+      </div>
+      <p class="text-xs text-slate-500 mt-3">CSV: <code>nombre,categoria,modelo,stock,precio_compra,precio_venta,sku</code></p>
+    </div>
+
+    <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border-2 border-rose-200 dark:border-rose-500/30 p-5">
+      <h3 class="font-semibold text-rose-700 dark:text-rose-300 mb-1">Zona peligrosa</h3>
+      <p class="text-xs text-slate-500 mb-4">Esta acción elimina <strong>todos</strong> los productos, movimientos, clientes y vuelve la configuración a sus valores por defecto. No se puede deshacer.</p>
+      <button data-action="reset-all" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-medium">Resetear todos los datos</button>
+    </div>
+  </div>`;
+}
+
+// =====================================================================
+//  MODALS · forms
+// =====================================================================
+
+function openModal(html, onMount) {
+  const root = $('#modalRoot');
+  root.innerHTML = `
+    <div class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4" id="modalBg">
+      <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-2xl w-full max-w-md p-6 relative" onclick="event.stopPropagation()">
+        ${html}
+      </div>
+    </div>`;
+  $('#modalBg').onclick = closeModal;
+  if (onMount) onMount();
+}
+function closeModal() { $('#modalRoot').innerHTML = ''; }
+
+function productForm(prod=null, presetCategory=null) {
+  const p = prod || { name:'', category: presetCategory || 'Fundas', model:'', color:'', stock:0, buyPrice:0, sellPrice:0, sku:'', battery:'' };
+  openModal(`
+    <h3 class="text-lg font-semibold mb-4">${prod?'Editar':'Nuevo'} producto</h3>
+    <div class="grid grid-cols-2 gap-3 text-sm">
+      <div class="col-span-2">
+        <label class="block mb-1">Nombre</label>
+        <input id="fName" value="${escapeHtml(p.name)}" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+      </div>
+      <div>
+        <label class="block mb-1">Categoría</label>
+        <select id="fCategory" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10">
+          ${CATEGORIES.map(c=>`<option ${c===p.category?'selected':''}>${c}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label class="block mb-1">Modelo</label>
+        <input id="fModel" value="${escapeHtml(p.model||'')}" placeholder="iPhone 13" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+      </div>
+      <div class="col-span-2">
+        <label class="block mb-1">Color <span class="text-slate-400">(opcional)</span></label>
+        <input id="fColor" list="colorList" value="${escapeHtml(p.color||'')}" placeholder="Negro, Azul, Transparente..." class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+        <datalist id="colorList">${COLOR_PRESETS.map(([n])=>`<option value="${n}">`).join('')}</datalist>
+      </div>
+      <div id="fBatteryWrap" class="${p.category==='Celulares'?'':'hidden'}">
+        <label class="block mb-1">Batería (%)</label>
+        <input id="fBattery" type="number" min="0" max="100" value="${p.battery??''}" placeholder="0–100" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+      </div>
+      <div>
+        <label class="block mb-1">Stock</label>
+        <input id="fStock" type="number" min="0" value="${p.stock}" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+      </div>
+      <div>
+        <label class="block mb-1">SKU</label>
+        <input id="fSku" value="${escapeHtml(p.sku||'')}" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+      </div>
+      <div>
+        <label class="block mb-1">Precio compra</label>
+        <input id="fBuy" type="number" min="0" value="${p.buyPrice}" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+      </div>
+      <div>
+        <label class="block mb-1">Precio venta</label>
+        <input id="fSell" type="number" min="0" value="${p.sellPrice}" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5">
+      <button id="cancel" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 text-sm">Cancelar</button>
+      <button id="save" class="px-4 py-2 rounded-xl bg-ivory-500 hover:bg-ivory-700 text-white text-sm font-medium">Guardar</button>
+    </div>
+  `, () => {
+    $('#cancel').onclick = closeModal;
+    $('#fCategory').onchange = (e) => {
+      $('#fBatteryWrap').classList.toggle('hidden', e.target.value !== 'Celulares');
+    };
+    $('#save').onclick = () => {
+      const cat = $('#fCategory').value;
+      const battRaw = $('#fBattery').value;
+      const data = {
+        name: $('#fName').value.trim(),
+        category: cat,
+        model: $('#fModel').value.trim(),
+        color: $('#fColor').value.trim(),
+        stock: parseInt($('#fStock').value)||0,
+        buyPrice: parseFloat($('#fBuy').value)||0,
+        sellPrice: parseFloat($('#fSell').value)||0,
+        sku: $('#fSku').value.trim(),
+        battery: cat==='Celulares' && battRaw!=='' ? Math.max(0,Math.min(100,parseInt(battRaw)||0)) : null,
+      };
+      if (!data.name) return toast('El nombre es obligatorio','err');
+      let target;
+      if (prod) { Object.assign(prod, data); target = prod; }
+      else {
+        target = { id: uid(), createdAt: new Date().toISOString(), ...data };
+        state.products.push(target);
+      }
+      save(); closeModal(); render(); toast('Producto guardado');
+      if (cloudReady) cloudUpsertProduct(target).catch(e => toast('Error nube: '+e.message,'err'));
+    };
+  });
+}
+
+function movementForm(type, presetProductId=null) {
+  const isOut = type==='out';
+  const title = isOut ? 'Nueva venta' : 'Nuevo ingreso';
+  openModal(`
+    <h3 class="text-lg font-semibold mb-4">${title}</h3>
+    <div class="space-y-3 text-sm">
+      <div>
+        <label class="block mb-1">Producto</label>
+        <div class="relative">
+          <input id="mProdSearch" autocomplete="off" placeholder="Buscar por nombre, modelo, color o SKU..." class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 focus:outline-none focus:ring-2 focus:ring-ivory-500"/>
+          <input id="mProd" type="hidden" value="${presetProductId||''}"/>
+          <div id="mProdList" class="hidden absolute left-0 right-0 mt-1 z-10 max-h-64 overflow-y-auto scrollbar-thin bg-white dark:bg-ivory-700 border border-slate-200 dark:border-white/10 rounded-xl shadow-lg"></div>
+        </div>
+        <div id="mProdPicked" class="mt-2 text-xs text-slate-500"></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block mb-1">Cantidad</label>
+          <input id="mQty" type="number" min="1" value="1" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+        </div>
+        <div>
+          <label class="block mb-1">${isOut?'Precio venta unitario':'Costo unitario'}</label>
+          <input id="mUnit" type="number" min="0" step="0.01" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+        </div>
+      </div>
+      ${isOut ? `
+      <div class="pt-3 border-t border-slate-200 dark:border-white/10">
+        <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Cliente</div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="col-span-2">
+            <label class="block mb-1">Celular *</label>
+            <input id="mPhone" autocomplete="off" placeholder="11 5555-5555" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+            <div id="mCustHint" class="text-xs text-slate-500 mt-1"></div>
+          </div>
+          <div>
+            <label class="block mb-1">Nombre *</label>
+            <input id="mFirst" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+          </div>
+          <div>
+            <label class="block mb-1">Apellido</label>
+            <input id="mLast" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+          </div>
+        </div>
+      </div>` : ''}
+      <div>
+        <label class="block mb-1">Nota (opcional)</label>
+        <input id="mNote" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+      </div>
+      <div id="mPreview" class="text-xs text-slate-500"></div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5">
+      <button id="cancel" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 text-sm">Cancelar</button>
+      <button id="save" class="px-4 py-2 rounded-xl ${isOut?'bg-ivory-500 hover:bg-ivory-700':'bg-ivory-900 hover:bg-ivory-800'} text-white text-sm font-medium">Registrar</button>
+    </div>
+  `, () => {
+    const sel = $('#mProd'), unit = $('#mUnit'), qty = $('#mQty'), prev = $('#mPreview');
+    const search = $('#mProdSearch'), list = $('#mProdList'), picked = $('#mProdPicked');
+
+    const productLabel = p => `${p.name} · ${p.model||'—'}${p.color?` · ${p.color}`:''}`;
+
+    const renderList = (q='') => {
+      const needle = q.toLowerCase().trim();
+      const matches = state.products
+        .filter(p => !needle || (p.name+' '+p.model+' '+(p.color||'')+' '+p.category+' '+(p.sku||'')).toLowerCase().includes(needle))
+        .slice(0, 40);
+      if (!matches.length) {
+        list.innerHTML = `<div class="px-3 py-2 text-sm text-slate-500">Sin resultados</div>`;
+      } else {
+        list.innerHTML = matches.map(p => `
+          <button type="button" data-pid="${p.id}" class="w-full text-left px-3 py-2 text-sm hover:bg-ivory-100 dark:hover:bg-white/10 flex items-center gap-2">
+            <span class="flex-1 truncate">
+              <span class="font-medium">${escapeHtml(p.name)}</span>
+              <span class="text-slate-500"> · ${escapeHtml(p.model||'—')}</span>
+              ${p.color ? ` · ${colorChip(p.color)}` : ''}
+            </span>
+            <span class="text-xs ${p.stock<=0?'text-rose-500':p.stock<=state.settings.lowStock?'text-amber-500':'text-slate-400'}">stock ${p.stock}</span>
+          </button>`).join('');
+        list.querySelectorAll('[data-pid]').forEach(b => b.onclick = () => pick(b.dataset.pid));
+      }
+      list.classList.remove('hidden');
+    };
+
+    const pick = (id) => {
+      const p = state.products.find(x => x.id === id);
+      if (!p) return;
+      sel.value = id;
+      search.value = productLabel(p);
+      picked.innerHTML = `Stock actual: <b>${p.stock}</b> · P. compra ${fmt.format(p.buyPrice)} · P. venta ${fmt.format(p.sellPrice)}`;
+      list.classList.add('hidden');
+      updateUnit();
+    };
+
+    function updateUnit() {
+      const p = state.products.find(x=>x.id===sel.value);
+      if (!p) return;
+      unit.value = isOut ? p.sellPrice : p.buyPrice;
+      refresh();
+    }
+
+    function refresh() {
+      const p = state.products.find(x=>x.id===sel.value);
+      const q = parseInt(qty.value)||0;
+      const u = parseFloat(unit.value)||0;
+      if (!p) { prev.textContent=''; return; }
+      if (isOut) {
+        const profit = (u - p.buyPrice) * q;
+        prev.innerHTML = `Total: <b>${fmt.format(u*q)}</b> · Ganancia estimada: <b class="text-emerald-600">${fmt.format(profit)}</b> · Stock disponible: ${p.stock}`;
+      } else {
+        prev.innerHTML = `Total compra: <b>${fmt.format(u*q)}</b> · Stock resultante: ${p.stock + q}`;
+      }
+    }
+    qty.oninput = refresh; unit.oninput = refresh;
+
+    search.oninput = () => { sel.value=''; renderList(search.value); };
+    search.onfocus = () => renderList(search.value);
+    document.addEventListener('mousedown', (e) => {
+      if (!list.contains(e.target) && e.target !== search) list.classList.add('hidden');
+    });
+
+    if (presetProductId) pick(presetProductId);
+    else setTimeout(() => search.focus(), 50);
+
+    if (isOut) {
+      const phone = $('#mPhone'), first = $('#mFirst'), last = $('#mLast'), hint = $('#mCustHint');
+      phone.oninput = () => {
+        const v = phone.value.trim();
+        if (!v) { hint.textContent=''; return; }
+        const found = state.customers.find(c => c.phone === v);
+        if (found) {
+          first.value = found.firstName;
+          last.value = found.lastName;
+          hint.innerHTML = `<span class="text-emerald-600">Cliente existente: ${escapeHtml(found.firstName)} ${escapeHtml(found.lastName)}</span>`;
+        } else {
+          hint.innerHTML = `<span class="text-slate-500">Cliente nuevo — se creará al guardar.</span>`;
+        }
+      };
+    }
+    $('#cancel').onclick = closeModal;
+    $('#save').onclick = () => {
+      const p = state.products.find(x=>x.id===sel.value);
+      if (!p) return toast('Seleccioná un producto','err');
+      const q = parseInt(qty.value)||0;
+      const u = parseFloat(unit.value)||0;
+      if (q<=0) return toast('Cantidad inválida','err');
+      if (isOut && q > p.stock) return toast('Stock insuficiente','err');
+
+      let customer = null;
+      if (isOut) {
+        const phone = $('#mPhone').value.trim();
+        const first = $('#mFirst').value.trim();
+        const lastN = $('#mLast').value.trim();
+        if (!phone) return toast('El celular del cliente es obligatorio','err');
+        if (!first) return toast('El nombre del cliente es obligatorio','err');
+        customer = state.customers.find(c => c.phone === phone);
+        if (customer) {
+          if (first && first !== customer.firstName) customer.firstName = first;
+          if (lastN && lastN !== customer.lastName) customer.lastName = lastN;
+        } else {
+          customer = { id: uid(), firstName: first, lastName: lastN, phone, createdAt: new Date().toISOString() };
+          state.customers.push(customer);
+        }
+      }
+
+      const mov = { id: uid(), type, productId:p.id, qty:q, date: new Date().toISOString(), note: $('#mNote').value.trim() };
+      if (isOut) { mov.unitPrice = u; mov.unitCost = p.buyPrice; mov.customerId = customer.id; p.stock -= q; }
+      else { mov.unitCost = u; p.buyPrice = u || p.buyPrice; p.stock += q; }
+      state.movements.push(mov);
+      save(); closeModal(); render(); toast(isOut?'Venta registrada':'Ingreso registrado');
+      if (cloudReady) {
+        const ops = [cloudInsertMovement(mov), cloudUpsertProduct(p)];
+        if (customer) ops.push(cloudUpsertCustomer(customer));
+        Promise.all(ops).catch(e => toast('Error nube: '+e.message,'err'));
+      }
+    };
+  });
+}
+
+function addStockForm(productId) {
+  const p = state.products.find(x=>x.id===productId);
+  if (!p) return;
+  movementForm('in', productId);
+}
+
+// =====================================================================
+//  Export / Import
+// =====================================================================
+function downloadFile(name, content, type='text/plain') {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  URL.revokeObjectURL(url);
+}
+function toCSV(rows) {
+  return rows.map(r => r.map(v => {
+    const s = String(v ?? '');
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+  }).join(',')).join('\n');
+}
+function exportCategory(cat) {
+  const items = state.products.filter(p=>p.category===cat);
+  const rows = [['nombre','categoria','modelo','color','stock','precio_compra','precio_venta','sku']];
+  items.forEach(p => rows.push([p.name,p.category,p.model,p.color||'',p.stock,p.buyPrice,p.sellPrice,p.sku]));
+  downloadFile(`ivoryx-${cat.toLowerCase()}.csv`, toCSV(rows), 'text/csv');
+}
+function exportMovements() {
+  const rows = [['fecha','tipo','producto','categoria','modelo','cantidad','unitario','total','nota']];
+  state.movements.forEach(m => {
+    const p = state.products.find(pp=>pp.id===m.productId);
+    const unit = m.type==='out' ? (m.unitPrice||0) : (m.unitCost||0);
+    rows.push([m.date, m.type, p?.name||'', p?.category||'', p?.model||'', m.qty, unit, unit*m.qty, m.note||'']);
+  });
+  downloadFile('ivoryx-movimientos.csv', toCSV(rows), 'text/csv');
+}
+function backup() {
+  downloadFile(`ivoryx-backup-${todayKey()}.json`, JSON.stringify(state,null,2), 'application/json');
+}
+function importBackup(file) {
+  const r = new FileReader();
+  r.onload = () => { try { state = JSON.parse(r.result); save(); render(); toast('Backup restaurado'); } catch { toast('JSON inválido','err'); } };
+  r.readAsText(file);
+}
+function importCsv(file) {
+  const r = new FileReader();
+  r.onload = () => {
+    const lines = r.result.split(/\r?\n/).filter(Boolean);
+    const header = lines.shift().toLowerCase().split(',');
+    const idx = k => header.indexOf(k);
+    let added = 0;
+    lines.forEach(line => {
+      const cells = line.match(/("([^"]|"")*"|[^,]*)(,|$)/g)?.map(c => c.replace(/,$/,'').replace(/^"|"$/g,'').replace(/""/g,'"')) || [];
+      const name = cells[idx('nombre')];
+      if (!name) return;
+      state.products.push({
+        id: uid(),
+        name,
+        category: cells[idx('categoria')] || 'Otros',
+        model: cells[idx('modelo')] || '',
+        color: cells[idx('color')] || '',
+        stock: parseInt(cells[idx('stock')])||0,
+        buyPrice: parseFloat(cells[idx('precio_compra')])||0,
+        sellPrice: parseFloat(cells[idx('precio_venta')])||0,
+        sku: cells[idx('sku')] || '',
+        createdAt: new Date().toISOString(),
+      });
+      added++;
+    });
+    save(); render(); toast(`${added} productos importados`);
+  };
+  r.readAsText(file);
+}
+
+// =====================================================================
+//  Render & Event delegation
+// =====================================================================
+function render() {
+  // Theme
+  document.documentElement.classList.toggle('dark', state.settings.theme==='dark');
+
+  renderNav();
+
+  const titles = { dashboard:'Dashboard', movements:'Historial de movimientos', stats:'Estadísticas', settings:'Configuración' };
+  let html = '';
+  if (currentRoute==='dashboard') { $('#pageTitle').textContent = 'Dashboard'; html = viewDashboard(); }
+  else if (currentRoute==='customers') { $('#pageTitle').textContent = 'Clientes'; html = viewCustomers(); }
+  else if (currentRoute==='movements') { $('#pageTitle').textContent = titles.movements; html = viewMovements(); }
+  else if (currentRoute==='stats') { $('#pageTitle').textContent = titles.stats; html = viewStats(); }
+  else if (currentRoute==='settings') { $('#pageTitle').textContent = titles.settings; html = viewSettings(); }
+  else if (currentRoute.startsWith('category:')) {
+    const cat = currentRoute.split(':')[1];
+    $('#pageTitle').textContent = cat;
+    html = viewCategory(cat);
+  }
+  $('#view').innerHTML = html;
+
+  bindViewEvents();
+}
+
+function bindViewEvents() {
+  // Quick actions / data-action
+  $$('#view [data-action]').forEach(b => {
+    b.onclick = () => {
+      const a = b.dataset.action;
+      const id = b.dataset.id;
+      const cat = b.dataset.category;
+      if (a==='new-product') productForm(null, cat);
+      else if (a==='edit') productForm(state.products.find(p=>p.id===id));
+      else if (a==='delete') {
+        if (confirm('¿Eliminar este producto? Los movimientos asociados también se borrarán.')) {
+          state.products = state.products.filter(p=>p.id!==id);
+          state.movements = state.movements.filter(m=>m.productId!==id);
+          save(); render(); toast('Producto eliminado');
+          if (cloudReady) cloudDeleteProduct(id).catch(e => toast('Error nube: '+e.message,'err'));
+        }
+      }
+      else if (a==='add-stock') addStockForm(id);
+      else if (a==='new-sale') movementForm('out');
+      else if (a==='new-inbound') movementForm('in');
+      else if (a==='export-cat') exportCategory(cat);
+      else if (a==='export-mov') exportMovements();
+      else if (a==='backup') backup();
+      else if (a==='new-customer') customerForm(null);
+      else if (a==='edit-customer') customerForm(state.customers.find(c=>c.id===id));
+      else if (a==='view-customer') viewCustomerHistory(id);
+      else if (a==='delete-customer') {
+        if (confirm('¿Eliminar este cliente? Las ventas mantienen el registro pero quedan sin cliente asociado.')) {
+          state.customers = state.customers.filter(c=>c.id!==id);
+          state.movements.forEach(m => { if (m.customerId===id) m.customerId = null; });
+          save(); render(); toast('Cliente eliminado');
+          if (cloudReady) cloudDeleteCustomer(id).catch(e => toast('Error nube: '+e.message,'err'));
+        }
+      }
+      else if (a==='reset') {
+        if (confirm('Borrar TODOS los datos. ¿Continuar?')) {
+          state = defaultState(); save(); render(); toast('Datos reseteados');
+        }
+      }
+      else if (a==='reset-all') {
+        const typed = prompt('Esto eliminará TODOS los productos, movimientos, clientes y reiniciará la configuración.\n\nEscribí BORRAR para confirmar:');
+        if (typed && typed.trim().toUpperCase() === 'BORRAR') {
+          state = defaultState();
+          save();
+          listFilters = { q:'', lowOnly:false, color:'' };
+          movFilters = { from:'', to:'', productId:'', category:'', type:'' };
+          customerQuery = '';
+          render();
+          toast('Todos los datos fueron eliminados');
+        } else if (typed !== null) {
+          toast('Confirmación incorrecta. No se borró nada.','err');
+        }
+      }
+    };
+  });
+  $$('#view [data-go]').forEach(b => b.onclick = () => navigate(b.dataset.go));
+
+  // Category filters
+  const cs = $('#catSearch'); if (cs) cs.oninput = e => { listFilters.q = e.target.value; render(); cs.focus(); };
+  const lo = $('#lowOnly'); if (lo) lo.onchange = e => { listFilters.lowOnly = e.target.checked; render(); };
+  $$('#view [data-color-filter]').forEach(b => b.onclick = () => { listFilters.color = b.dataset.colorFilter; render(); });
+  const cuS = $('#custSearch'); if (cuS) cuS.oninput = e => { customerQuery = e.target.value; render(); cuS.focus(); };
+
+  // Movements filters
+  const bind = (id, key) => { const el=$('#'+id); if (el) el.onchange = e => { movFilters[key]=e.target.value; render(); }; };
+  bind('movFrom','from'); bind('movTo','to'); bind('movType','type'); bind('movCategory','category'); bind('movProduct','productId');
+
+  // Settings
+  const ss = $('#saveSettings'); if (ss) ss.onclick = () => {
+    state.settings.business = $('#setBusiness').value;
+    state.settings.lowStock = parseInt($('#setLow').value)||0;
+    state.settings.criticalStock = parseInt($('#setCrit').value)||0;
+    save(); render(); toast('Configuración guardada');
+  };
+  const fb = $('#fileBackup'); if (fb) fb.onchange = e => e.target.files[0] && importBackup(e.target.files[0]);
+  const fc = $('#fileCsv'); if (fc) fc.onchange = e => e.target.files[0] && importCsv(e.target.files[0]);
+
+  // Supabase
+  const connect = $('#connectSupa'); if (connect) connect.onclick = async () => {
+    const url = $('#setSupaUrl').value.trim();
+    const key = $('#setSupaKey').value.trim();
+    if (!url || !key) return toast('Completá URL y key','err');
+    saveCfg({ url, key });
+    if (!initSupabase()) return toast('SDK Supabase no cargado','err');
+    try {
+      const data = await cloudLoad();
+      if (data.products.length === 0 && data.movements.length === 0 && state.products.length > 0) {
+        if (confirm('La nube está vacía. ¿Subir los datos locales ahora?')) await pushAll();
+      } else {
+        state.products = data.products; state.movements = data.movements; state.customers = data.customers; save();
+      }
+      render(); toast('Conectado a Supabase ✨');
+    } catch (e) { toast('Error: '+e.message,'err'); }
+  };
+  const push = $('#pushSupa'); if (push) push.onclick = async () => {
+    if (!cloudReady) return toast('Conectá primero','err');
+    if (!confirm('Esto sobreescribe los datos en la nube con los locales. ¿Continuar?')) return;
+    try { await pushAll(); toast('Datos subidos'); } catch (e) { toast('Error: '+e.message,'err'); }
+  };
+  const pull = $('#pullSupa'); if (pull) pull.onclick = async () => {
+    if (!cloudReady) return toast('Conectá primero','err');
+    try {
+      const data = await cloudLoad();
+      state.products = data.products; state.movements = data.movements; state.customers = data.customers; save(); render();
+      toast('Datos descargados');
+    } catch (e) { toast('Error: '+e.message,'err'); }
+  };
+  const disc = $('#disconnectSupa'); if (disc) disc.onclick = () => {
+    clearCfg(); supa=null; cloudReady=false; render(); toast('Desconectado');
+  };
+}
+
+async function pushAll() {
+  if (!cloudReady) return;
+  if (state.customers.length) {
+    const { error } = await supa.from('customers').upsert(state.customers.map(customerToRow));
+    if (error) throw error;
+  }
+  if (state.products.length) {
+    const { error } = await supa.from('products').upsert(state.products.map(productToRow));
+    if (error) throw error;
+  }
+  if (state.movements.length) {
+    const { error } = await supa.from('movements').upsert(state.movements.map(movToRow));
+    if (error) throw error;
+  }
+}
+
+// Topbar bindings
+$('#btnTheme').onclick = () => { state.settings.theme = state.settings.theme==='dark'?'light':'dark'; save(); render(); };
+$('#btnSettings').onclick = () => navigate('settings');
+$('#btnMobileNav').onclick = () => $('#sidebar').classList.toggle('hidden');
+$('#globalSearch').oninput = e => {
+  const q = e.target.value.toLowerCase().trim();
+  if (!q) return;
+  const hit = state.products.find(p => (p.name+p.model+p.sku).toLowerCase().includes(q));
+  if (hit) { navigate('category:'+hit.category); listFilters.q = q; render(); }
+};
+
+// Init
+if (location.hash) currentRoute = location.hash.slice(1);
+initSupabase();
+render();
+
+(async () => {
+  if (!cloudReady) return;
+  try {
+    const data = await cloudLoad();
+    if (data) {
+      state.products = data.products;
+      state.movements = data.movements;
+      state.customers = data.customers;
+      save();
+      render();
+      toast('Sincronizado con Supabase ✨','ok');
+    }
+  } catch (e) {
+    console.error(e);
+    toast('No se pudo conectar a Supabase: '+(e.message||e),'err');
+  }
+})();
+</script>
+</body>
+</html>
