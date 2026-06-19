@@ -208,37 +208,33 @@ const defaultState = () => ({
 
 let state = load();
 
+function migratePlateado(products) {
+  const changed = [];
+  for (const p of (products||[])) {
+    if ((p.color||'').toLowerCase() === 'plateado') {
+      p.color = 'Otros';
+      changed.push(p);
+    }
+  }
+  return changed;
+}
+
 function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return seed(defaultState());
     const s = JSON.parse(raw);
-    return { ...defaultState(), ...s, customers: s.customers||[], settings: { ...defaultState().settings, ...(s.settings||{}) } };
+    const merged = { ...defaultState(), ...s, customers: s.customers||[], settings: { ...defaultState().settings, ...(s.settings||{}) } };
+    if (migratePlateado(merged.products).length) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    }
+    return merged;
   } catch { return seed(defaultState()); }
 }
 function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 function uid() { return Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4); }
 
 function seed(s) {
-  const now = new Date().toISOString();
-  const demo = [
-    ['Funda Silicona','Fundas','iPhone 13','Negro',6,5000,10000],
-    ['Funda Silicona','Fundas','iPhone 13','Azul',3,5000,10000],
-    ['Funda Silicona','Fundas','iPhone 13','Rosa',3,5000,10000],
-    ['Funda MagSafe','Fundas','iPhone 14 Pro','Negro',5,5500,11000],
-    ['Funda MagSafe','Fundas','iPhone 14 Pro','Blanco',3,5500,11000],
-    ['Funda Transparente','Fundas','iPhone 15 Pro Max','Transparente',4,6000,12500],
-    ['Vidrio 9H','Templados','iPhone 13','',20,1200,3500],
-    ['Vidrio Privacidad','Templados','iPhone 15','',6,1800,4500],
-    ['Cargador 20W USB-C','Cargadores','Universal','',10,3500,7500],
-    ['Auricular cable','Auriculares','Universal','',1,1500,3500],
-    ['Bolsa kraft chica','Bolsas','—','',50,80,250],
-    ['Tarjeta agradecimiento','Tarjetas','—','',100,50,0],
-  ];
-  s.products = demo.map(([name,category,model,color,stock,buyPrice,sellPrice]) => ({
-    id: uid(), name, category, model, color, stock, buyPrice, sellPrice,
-    sku: '', createdAt: now,
-  }));
   return s;
 }
 
@@ -248,7 +244,7 @@ const COLOR_PRESETS = [
   ['Azul','#2563EB'], ['Celeste','#38BDF8'], ['Rojo','#DC2626'],
   ['Rosa','#EC4899'], ['Violeta','#7C3AED'], ['Verde','#16A34A'],
   ['Amarillo','#FACC15'], ['Naranja','#F97316'], ['Gris','#6B7280'],
-  ['Beige','#E7D7B1'], ['Dorado','#D4AF37'], ['Plateado','#C0C0C0'],
+  ['Beige','#E7D7B1'], ['Dorado','#D4AF37'], ['Otros','#C0C0C0'],
 ];
 function colorHex(name) {
   const hit = COLOR_PRESETS.find(([n]) => n.toLowerCase() === (name||'').toLowerCase());
@@ -314,7 +310,7 @@ let currentRoute = 'dashboard';
 function navigate(id) {
   currentRoute = id;
   render();
-  history.replaceState(null, '', '#' + id);
+  history.replaceState(null, '', '#' + encodeURI(id));
 }
 
 function renderNav() {
@@ -331,8 +327,6 @@ function renderNav() {
 // ---------- Stock helpers ----------
 function stockLevel(p) {
   if (p.stock <= 0) return { label:'Sin stock', color:'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300' };
-  if (p.stock <= state.settings.criticalStock) return { label:'Crítico', color:'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300' };
-  if (p.stock <= state.settings.lowStock) return { label:'Bajo', color:'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300' };
   return { label:'OK', color:'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300' };
 }
 
@@ -445,7 +439,196 @@ function renderAlerts() {
 // ---------- Category view ----------
 let listFilters = { q:'', lowOnly:false, color:'' };
 
+const MODEL_DRILLDOWN = new Set(['Fundas','Templados','Celulares']);
+const FUNDA_COLOR_ORDER = ['Blanco','Negro','Azul','Rojo','Otros','Magsafe'];
+const FUNDA_NAMED = new Set(['blanco','negro','azul','rojo']);
+
+function fundaBucket(p) {
+  const c = (p.color || '').trim().toLowerCase();
+  if (c === 'transparente' || /magsafe/i.test(p.name || '')) return 'Magsafe';
+  if (FUNDA_NAMED.has(c)) return c.charAt(0).toUpperCase() + c.slice(1);
+  return 'Otros';
+}
+function isFundaMagsafe(p) {
+  const c = (p.color || '').trim().toLowerCase();
+  return c === 'transparente' || /magsafe/i.test(p.name || '');
+}
+function templadoBucket(p) {
+  const n = (p.name || '').toLowerCase();
+  if (n.includes('privacidad') || n.includes('anti espia') || n.includes('anti espía') || n.includes('antiespia') || n.includes('antiespía')) {
+    return 'Templados anti espía';
+  }
+  return 'Templados';
+}
+
+function viewCategoryModels(category) {
+  const products = state.products
+    .filter(p => p.category === category)
+    .filter(p => !listFilters.q || (p.name+p.model+p.sku+(p.color||'')).toLowerCase().includes(listFilters.q.toLowerCase()));
+
+  const byModel = new Map();
+  for (const p of products) {
+    const key = (p.model || '').trim() || '— Sin modelo —';
+    if (!byModel.has(key)) byModel.set(key, { units: 0, variants: 0 });
+    const cur = byModel.get(key);
+    cur.units += p.stock;
+    cur.variants += 1;
+  }
+  const models = [...byModel.entries()]
+    .map(([model, v]) => ({ model, ...v }))
+    .sort((a,b) => a.model.localeCompare(b.model, 'es'));
+
+  return `
+    <div class="flex flex-wrap items-center gap-3 mb-4">
+      <div class="relative flex-1 min-w-[200px]">
+        <input id="catSearch" placeholder="Buscar modelo..." value="${escapeHtml(listFilters.q)}" class="w-full pl-9 pr-3 py-2 rounded-xl bg-white dark:bg-ivory-800 border border-slate-200 dark:border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-ivory-500"/>
+        <svg class="w-4 h-4 absolute left-3 top-2.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"/></svg>
+      </div>
+      <button data-action="new-product" data-category="${category}" class="px-4 py-2 rounded-xl bg-ivory-500 hover:bg-ivory-700 text-white text-sm font-medium">+ Producto</button>
+      ${category==='Fundas' ? `
+        <button data-action="seed-fundas" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm">+ Crear modelos</button>
+        <button data-action="bulk-price" data-bulk="silicona" class="px-4 py-2 rounded-xl bg-ivory-900 hover:bg-ivory-800 text-white text-sm">Precio compra Silicona</button>
+        <button data-action="bulk-price" data-bulk="magsafe" class="px-4 py-2 rounded-xl bg-ivory-900 hover:bg-ivory-800 text-white text-sm">Precio compra MagSafe</button>` : ''}
+      <button data-action="export-cat" data-category="${category}" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-sm">Exportar CSV</button>
+    </div>
+
+    ${models.length ? `
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        ${models.map(m => {
+          const lowish = m.units <= state.settings.lowStock;
+          const out = m.units <= 0;
+          const tone = out ? 'text-rose-600 dark:text-rose-300' : lowish ? 'text-amber-600 dark:text-amber-300' : 'text-emerald-600 dark:text-emerald-300';
+          return `<button data-model="${escapeHtml(m.model)}" class="model-card group text-left bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 p-5 hover:border-ivory-500 hover:shadow-md transition">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="font-semibold truncate">${escapeHtml(m.model)}</div>
+                <div class="text-xs text-slate-500 mt-1">${m.variants} variante${m.variants===1?'':'s'}</div>
+              </div>
+              <div class="text-right">
+                <div class="text-2xl font-bold ${tone}">${m.units}</div>
+                <div class="text-[10px] uppercase tracking-wide text-slate-400">en stock</div>
+              </div>
+            </div>
+            <div class="mt-3 text-xs text-ivory-500 opacity-0 group-hover:opacity-100 transition">Ver detalle →</div>
+          </button>`;
+        }).join('')}
+      </div>` : `
+      <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 p-10 text-center text-slate-500">
+        Sin modelos cargados en ${escapeHtml(category)}.
+      </div>`}
+  `;
+}
+
+function viewModelDetail(category, model) {
+  const items = state.products.filter(p => p.category === category && ((p.model || '').trim() || '— Sin modelo —') === model);
+
+  let bucketsHtml = '';
+  if (category === 'Fundas') {
+    const buckets = Object.fromEntries(FUNDA_COLOR_ORDER.map(b => [b, { units: 0, products: [] }]));
+    for (const p of items) {
+      const b = fundaBucket(p);
+      buckets[b].units += p.stock;
+      buckets[b].products.push(p);
+    }
+    bucketsHtml = `<div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
+      ${FUNDA_COLOR_ORDER.map(name => {
+        const b = buckets[name];
+        const out = b.units <= 0;
+        const tone = out ? 'text-rose-600 dark:text-rose-300' : 'text-slate-900 dark:text-white';
+        return `<div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 p-4">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2 text-sm font-medium">${name==='Magsafe' ? '<span class="w-3.5 h-3.5 rounded-full bg-gradient-to-br from-slate-400 to-slate-700"></span> MagSafe' : name==='Otros' ? '<span class="w-3.5 h-3.5 rounded-full bg-slate-300"></span> Otros' : colorChip(name)}</div>
+            <div class="text-2xl font-bold ${tone}">${b.units}</div>
+          </div>
+          ${b.products.length ? `<div class="mt-2 text-xs text-slate-500 space-y-0.5">
+            ${b.products.map(p => `<div class="flex justify-between gap-2"><span class="truncate">${escapeHtml(p.name)}${p.color ? ' · '+escapeHtml(p.color) : ''}</span><span>${p.stock}</span></div>`).join('')}
+          </div>` : '<div class="mt-2 text-xs text-slate-400">Sin stock</div>'}
+        </div>`;
+      }).join('')}
+    </div>`;
+  } else if (category === 'Templados') {
+    const buckets = { 'Templados': { units: 0, products: [] }, 'Templados anti espía': { units: 0, products: [] } };
+    for (const p of items) {
+      const b = templadoBucket(p);
+      buckets[b].units += p.stock;
+      buckets[b].products.push(p);
+    }
+    bucketsHtml = `<div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+      ${['Templados','Templados anti espía'].map(name => {
+        const b = buckets[name];
+        const out = b.units <= 0;
+        const tone = out ? 'text-rose-600 dark:text-rose-300' : 'text-emerald-600 dark:text-emerald-300';
+        return `<div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 p-5">
+          <div class="flex items-center justify-between">
+            <div class="text-sm font-semibold">${name}</div>
+            <div class="text-3xl font-bold ${tone}">${b.units}</div>
+          </div>
+          ${b.products.length ? `<div class="mt-3 text-xs text-slate-500 space-y-1">
+            ${b.products.map(p => `<div class="flex justify-between gap-2"><span class="truncate">${escapeHtml(p.name)}</span><span>${p.stock}</span></div>`).join('')}
+          </div>` : '<div class="mt-3 text-xs text-slate-400">Sin stock</div>'}
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  // Tabla detalle de productos
+  const showColor = COLOR_CATEGORIES.has(category);
+  const tableHtml = `
+    <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 overflow-hidden">
+      <div class="overflow-x-auto scrollbar-thin">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 dark:bg-white/5 text-left text-slate-500 dark:text-slate-400">
+            <tr>
+              <th class="px-4 py-3">Producto</th>
+              ${showColor ? '<th class="px-4 py-3">Color</th>' : ''}
+              ${category==='Celulares' ? '<th class="px-4 py-3 text-right">Batería</th>' : ''}
+              <th class="px-4 py-3 text-right">Stock</th>
+              <th class="px-4 py-3 text-right">P. Compra</th>
+              <th class="px-4 py-3 text-right">P. Venta</th>
+              <th class="px-4 py-3">Estado</th>
+              <th class="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.length ? items.map(p => {
+              const lvl = stockLevel(p);
+              return `<tr class="border-t border-slate-100 dark:border-white/5">
+                <td class="px-4 py-3 font-medium">${escapeHtml(p.name)} ${p.sku?`<span class="text-xs text-slate-400 ml-1">${escapeHtml(p.sku)}</span>`:''}</td>
+                ${showColor ? `<td class="px-4 py-3">${colorChip(p.color)}</td>` : ''}
+                ${category==='Celulares' ? `<td class="px-4 py-3 text-right">${batteryChip(p.battery)}</td>` : ''}
+                <td class="px-4 py-3 text-right font-semibold">${p.stock}</td>
+                <td class="px-4 py-3 text-right">${fmt.format(p.buyPrice)}</td>
+                <td class="px-4 py-3 text-right">${fmt.format(p.sellPrice)}</td>
+                <td class="px-4 py-3"><span class="px-2 py-0.5 text-xs rounded-full ${lvl.color}">${lvl.label}</span></td>
+                <td class="px-4 py-3 text-right whitespace-nowrap">
+                  <button class="px-2 py-1 text-xs rounded-lg bg-ivory-500 text-white hover:bg-ivory-700" data-action="add-stock" data-id="${p.id}">+ Stock</button>
+                  <button class="px-2 py-1 text-xs rounded-lg bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20" data-action="edit" data-id="${p.id}">Editar</button>
+                  <button class="px-2 py-1 text-xs rounded-lg bg-rose-100 text-rose-700 hover:bg-rose-200" data-action="delete" data-id="${p.id}">Eliminar</button>
+                </td>
+              </tr>`;
+            }).join('') : `<tr><td colspan="${5 + (showColor?1:0) + (category==='Celulares'?1:0) + 2}" class="px-4 py-10 text-center text-slate-500">Sin productos para este modelo.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  return `
+    <div class="flex flex-wrap items-center gap-3 mb-4">
+      <button data-go="category:${category}" class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-sm flex items-center gap-1">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        Modelos de ${escapeHtml(category)}
+      </button>
+      <div class="text-sm text-slate-500">·</div>
+      <div class="text-sm font-semibold">${escapeHtml(model)}</div>
+      <button data-action="new-product" data-category="${category}" data-model="${escapeHtml(model)}" class="ml-auto px-4 py-2 rounded-xl bg-ivory-500 hover:bg-ivory-700 text-white text-sm font-medium">+ Producto</button>
+    </div>
+    ${bucketsHtml}
+    ${tableHtml}
+  `;
+}
+
 function viewCategory(category) {
+  if (MODEL_DRILLDOWN.has(category)) return viewCategoryModels(category);
   const showColor = COLOR_CATEGORIES.has(category);
   const items = state.products
     .filter(p => p.category===category)
@@ -548,7 +731,21 @@ function viewMovements() {
     list = list.filter(m => ids.has(m.productId));
   }
 
+  const totalGastado = list.filter(m=>m.type==='in').reduce((a,m)=>a+m.qty*(m.unitCost||0),0);
+  const totalIngresado = list.filter(m=>m.type==='out').reduce((a,m)=>a+m.qty*(m.unitPrice||0),0);
+  const ganancia = list.filter(m=>m.type==='out').reduce((a,m)=>{
+    const p = state.products.find(pp=>pp.id===m.productId);
+    const cost = m.unitCost ?? p?.buyPrice ?? 0;
+    return a + m.qty * ((m.unitPrice||0) - cost);
+  },0);
+
   return `
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+      ${statCard('Plata gastada', fmt.format(totalGastado), 'rose-500', 'compras / ingresos')}
+      ${statCard('Plata cobrada', fmt.format(totalIngresado), 'ivory-500', 'ventas')}
+      ${statCard('Ganancia', fmt.format(ganancia), 'emerald-500', 'ventas − costo')}
+    </div>
+  ` + `
     <div class="flex flex-wrap items-center gap-3 mb-4">
       <button data-action="new-sale" class="px-4 py-2 rounded-xl bg-ivory-500 hover:bg-ivory-700 text-white text-sm font-medium">+ Nueva venta</button>
       <button data-action="new-inbound" class="px-4 py-2 rounded-xl bg-ivory-900 hover:bg-ivory-800 text-white text-sm font-medium">+ Nuevo ingreso</button>
@@ -581,32 +778,50 @@ function viewMovements() {
             <tr>
               <th class="px-4 py-3">Fecha</th>
               <th class="px-4 py-3">Tipo</th>
-              <th class="px-4 py-3">Producto</th>
-              <th class="px-4 py-3">Categoría</th>
-              <th class="px-4 py-3 text-right">Cantidad</th>
-              <th class="px-4 py-3 text-right">Unitario</th>
+              <th class="px-4 py-3">Productos</th>
+              <th class="px-4 py-3 text-right">Cant.</th>
               <th class="px-4 py-3 text-right">Total</th>
               <th class="px-4 py-3">Cliente</th>
               <th class="px-4 py-3">Nota</th>
             </tr>
           </thead>
           <tbody>
-            ${list.length ? list.map(m=>{
-              const p = state.products.find(pp=>pp.id===m.productId);
-              const c = m.customerId ? state.customers.find(cc=>cc.id===m.customerId) : null;
-              const unit = m.type==='out' ? (m.unitPrice||0) : (m.unitCost||0);
-              return `<tr class="border-t border-slate-100 dark:border-white/5">
-                <td class="px-4 py-2 whitespace-nowrap">${new Date(m.date).toLocaleString('es-AR')}</td>
-                <td class="px-4 py-2">${typeBadge(m.type)}</td>
-                <td class="px-4 py-2">${escapeHtml(p?.name||'—')} <span class="text-slate-400">· ${escapeHtml(p?.model||'')}</span></td>
-                <td class="px-4 py-2">${escapeHtml(p?.category||'')}</td>
-                <td class="px-4 py-2 text-right">${m.qty}</td>
-                <td class="px-4 py-2 text-right">${fmt.format(unit)}</td>
-                <td class="px-4 py-2 text-right font-semibold">${fmt.format(unit*m.qty)}</td>
-                <td class="px-4 py-2">${c ? `${escapeHtml(c.firstName)} ${escapeHtml(c.lastName)}<div class="text-xs text-slate-400">${escapeHtml(c.phone)}</div>` : '<span class="text-slate-400">—</span>'}</td>
-                <td class="px-4 py-2 text-slate-500">${escapeHtml(m.note||'')}</td>
-              </tr>`;
-            }).join('') : `<tr><td colspan="9" class="px-4 py-10 text-center text-slate-500">Sin movimientos para los filtros aplicados.</td></tr>`}
+            ${(() => {
+              if (!list.length) return `<tr><td colspan="7" class="px-4 py-10 text-center text-slate-500">Sin movimientos para los filtros aplicados.</td></tr>`;
+              const groups = new Map();
+              for (const m of list) {
+                const key = `${m.type}|${m.date}|${m.customerId||''}|${m.note||''}`;
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(m);
+              }
+              return [...groups.values()].map(items => {
+                const first = items[0];
+                const c = first.customerId ? state.customers.find(cc=>cc.id===first.customerId) : null;
+                const totalQty = items.reduce((a,m)=>a+m.qty,0);
+                const total = items.reduce((a,m)=>{
+                  const u = m.type==='out' ? (m.unitPrice||0) : (m.unitCost||0);
+                  return a + u*m.qty;
+                },0);
+                const productsHtml = items.map(m => {
+                  const p = state.products.find(pp=>pp.id===m.productId);
+                  const u = m.type==='out' ? (m.unitPrice||0) : (m.unitCost||0);
+                  const label = p ? `${escapeHtml(p.name)} <span class="text-slate-400">· ${escapeHtml(p.model||'')}${p.color?' · '+escapeHtml(p.color):''}</span>` : '—';
+                  return `<div class="flex justify-between gap-2 py-0.5">
+                    <span class="truncate">${label}</span>
+                    <span class="text-xs text-slate-500 whitespace-nowrap">${m.qty} × ${fmt.format(u)}</span>
+                  </div>`;
+                }).join('');
+                return `<tr class="border-t border-slate-100 dark:border-white/5 align-top">
+                  <td class="px-4 py-2 whitespace-nowrap">${new Date(first.date).toLocaleString('es-AR')}</td>
+                  <td class="px-4 py-2">${typeBadge(first.type)}</td>
+                  <td class="px-4 py-2 min-w-[260px]">${items.length>1?`<div class="text-xs text-slate-500 mb-1">${items.length} productos</div>`:''}${productsHtml}</td>
+                  <td class="px-4 py-2 text-right">${totalQty}</td>
+                  <td class="px-4 py-2 text-right font-semibold">${fmt.format(total)}</td>
+                  <td class="px-4 py-2">${c ? `${escapeHtml(c.firstName)} ${escapeHtml(c.lastName)}<div class="text-xs text-slate-400">${escapeHtml(c.phone)}</div>` : '<span class="text-slate-400">—</span>'}</td>
+                  <td class="px-4 py-2 text-slate-500">${escapeHtml(first.note||'')}</td>
+                </tr>`;
+              }).join('');
+            })()}
           </tbody>
         </table>
       </div>
@@ -850,6 +1065,10 @@ function viewSettings() {
         <button id="pullSupa" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 text-sm">Bajar datos de la nube</button>
         <button id="disconnectSupa" class="px-4 py-2 rounded-xl bg-rose-100 text-rose-700 hover:bg-rose-200 text-sm">Desconectar</button>
       </div>
+      <div class="mt-4 pt-4 border-t border-rose-200 dark:border-rose-500/30">
+        <p class="text-xs text-rose-700 dark:text-rose-300 mb-2"><b>Zona peligrosa nube:</b> elimina TODO lo que haya en Supabase (productos, movimientos y clientes). No afecta los datos locales.</p>
+        <button id="wipeSupa" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-medium">Vaciar datos de la nube</button>
+      </div>
     </div>
 
     <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 p-5">
@@ -902,11 +1121,12 @@ function viewSettings() {
 //  MODALS · forms
 // =====================================================================
 
-function openModal(html, onMount) {
+function openModal(html, onMount, size='md') {
   const root = $('#modalRoot');
+  const maxW = size==='lg' ? 'max-w-2xl' : size==='xl' ? 'max-w-3xl' : 'max-w-md';
   root.innerHTML = `
-    <div class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4" id="modalBg">
-      <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-2xl w-full max-w-md p-6 relative" onclick="event.stopPropagation()">
+    <div class="fixed inset-0 z-40 bg-black/50 flex items-start justify-center p-4 overflow-y-auto scrollbar-thin" id="modalBg">
+      <div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-2xl w-full ${maxW} p-6 relative my-8" onclick="event.stopPropagation()">
         ${html}
       </div>
     </div>`;
@@ -1179,6 +1399,516 @@ function addStockForm(productId) {
   movementForm('in', productId);
 }
 
+const FUNDA_VARIANT_COLORS = ['Blanco','Negro','Azul','Rojo','Otros','Transparente'];
+
+function seedFundasForm() {
+  openModal(`
+    <h3 class="text-lg font-semibold mb-2">Crear modelos de Fundas</h3>
+    <p class="text-xs text-slate-500 mb-3">Escribí un modelo por línea. Para cada modelo se crearán 6 productos llamados <b>Funda</b> en este orden: Blanco, Negro, Azul, Rojo, Otros, Transparente (MagSafe). Stock y precios en 0 (los ajustás después).</p>
+    <textarea id="seedModels" rows="22" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm font-mono">iPhone X
+iPhone XR
+iPhone XS
+iPhone XS Max
+iPhone 11
+iPhone 11 Pro
+iPhone 11 Pro Max
+iPhone 12
+iPhone 12 Pro
+iPhone 12 Pro Max
+iPhone 13
+iPhone 13 Pro
+iPhone 13 Pro Max
+iPhone 14
+iPhone 14 Pro
+iPhone 14 Pro Max
+iPhone 15
+iPhone 15 Pro
+iPhone 15 Pro Max
+iPhone 16
+iPhone 16 Pro
+iPhone 16 Pro Max
+Otros</textarea>
+    <div class="flex justify-end gap-2 mt-5">
+      <button id="cancel" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 text-sm">Cancelar</button>
+      <button id="save" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">Crear</button>
+    </div>
+  `, () => {
+    $('#cancel').onclick = closeModal;
+    $('#save').onclick = () => {
+      const raw = $('#seedModels').value;
+      const models = [...new Set(raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean))];
+      if (!models.length) return toast('Ingresá al menos un modelo','err');
+      const now = new Date().toISOString();
+      let created = 0, skipped = 0;
+      const newProds = [];
+      for (const model of models) {
+        for (const color of FUNDA_VARIANT_COLORS) {
+          const dup = state.products.find(p =>
+            p.category === 'Fundas' &&
+            p.name.toLowerCase() === 'funda' &&
+            (p.model||'').toLowerCase() === model.toLowerCase() &&
+            (p.color||'').toLowerCase() === color.toLowerCase()
+          );
+          if (dup) { skipped++; continue; }
+          const prod = {
+            id: uid(), name: 'Funda', category: 'Fundas',
+            model, color, sku: '', stock: 0, buyPrice: 0, sellPrice: 0,
+            battery: null, createdAt: now,
+          };
+          state.products.push(prod);
+          newProds.push(prod);
+          created++;
+        }
+      }
+      save(); closeModal(); render();
+      toast(`${created} producto${created===1?'':'s'} creado${created===1?'':'s'}${skipped?` · ${skipped} ya existía${skipped===1?'':'n'}`:''}`);
+      if (cloudReady && newProds.length) {
+        Promise.all(newProds.map(cloudUpsertProduct)).catch(e => toast('Error nube: '+e.message,'err'));
+      }
+    };
+  }, 'md');
+}
+
+function ingresoForm() {
+  const lines = [{ id: uid(), productId: '', qty: 1, unitPrice: '' }];
+  const productLabel = p => `${p.name} · ${p.model||'—'}${p.color?` · ${p.color}`:''}`;
+
+  const lineSubtotal = (l) => {
+    const p = state.products.find(x=>x.id===l.productId);
+    const q = parseInt(l.qty)||0;
+    const explicit = l.unitPrice === '' || l.unitPrice === null ? null : parseFloat(l.unitPrice);
+    const u = (explicit !== null && isFinite(explicit)) ? explicit : (p ? p.buyPrice : 0);
+    return q * u;
+  };
+
+  const lineHtml = (line, idx) => {
+    const p = state.products.find(x=>x.id===line.productId);
+    const placeholder = p ? `Toma ${fmt.format(p.buyPrice)} si lo dejás vacío` : 'Precio compra (opcional)';
+    const searchVal = p ? escapeHtml(productLabel(p)) : '';
+    const pickedHtml = p ? `Stock actual: <b>${p.stock}</b> · P. compra actual ${fmt.format(p.buyPrice)} · P. venta ${fmt.format(p.sellPrice)}` : '';
+    return `
+    <div class="line-row border border-slate-200 dark:border-white/10 rounded-xl p-3" data-lid="${line.id}">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-xs font-semibold text-slate-500">Producto ${idx+1}</div>
+        <button type="button" class="ln-remove text-rose-600 text-xs hover:underline">Quitar</button>
+      </div>
+      <div class="relative">
+        <input class="ln-search w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-ivory-500" placeholder="Buscar por nombre, modelo, color o SKU..." autocomplete="off" value="${searchVal}"/>
+        <div class="ln-list hidden absolute left-0 right-0 mt-1 z-10 max-h-64 overflow-y-auto scrollbar-thin bg-white dark:bg-ivory-700 border border-slate-200 dark:border-white/10 rounded-xl shadow-lg"></div>
+      </div>
+      <div class="ln-picked mt-1 text-xs text-slate-500">${pickedHtml}</div>
+      <div class="grid grid-cols-3 gap-2 mt-2 text-sm">
+        <div>
+          <label class="block text-xs mb-1">Cantidad</label>
+          <input class="ln-qty w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10" type="number" min="1" value="${line.qty}"/>
+        </div>
+        <div>
+          <label class="block text-xs mb-1">P. Compra <span class="text-slate-400">(opcional)</span></label>
+          <input class="ln-unit w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10" type="number" min="0" step="0.01" placeholder="${placeholder}" value="${line.unitPrice===''?'':line.unitPrice}"/>
+        </div>
+        <div>
+          <label class="block text-xs mb-1">Subtotal</label>
+          <div class="ln-sub px-3 py-2 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 font-semibold">${fmt.format(lineSubtotal(line))}</div>
+        </div>
+      </div>
+    </div>`;
+  };
+
+  openModal(`
+    <h3 class="text-lg font-semibold mb-4">Nuevo ingreso</h3>
+    <p class="text-xs text-slate-500 mb-3">Si dejás el precio vacío, se usa el último precio de compra del producto.</p>
+    <div id="ingLines" class="space-y-3"></div>
+    <button id="addLine" type="button" class="mt-3 w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-sm font-medium">+ Agregar producto</button>
+
+    <div class="flex items-center justify-between mt-4 px-2">
+      <div class="text-sm text-slate-500">Total gastado</div>
+      <div id="ingTotal" class="text-xl font-bold">${fmt.format(0)}</div>
+    </div>
+
+    <div class="mt-3 text-sm">
+      <label class="block mb-1">Nota (opcional)</label>
+      <input id="mNote" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+    </div>
+
+    <div class="flex justify-end gap-2 mt-5">
+      <button id="cancel" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 text-sm">Cancelar</button>
+      <button id="save" class="px-4 py-2 rounded-xl bg-ivory-900 hover:bg-ivory-800 text-white text-sm font-medium">Registrar ingreso</button>
+    </div>
+  `, () => {
+    const container = $('#ingLines');
+    const totalEl = $('#ingTotal');
+
+    function recalcTotal() {
+      const t = lines.reduce((a,l) => a + lineSubtotal(l), 0);
+      totalEl.textContent = fmt.format(t);
+    }
+
+    function bindLine(line) {
+      const row = container.querySelector(`[data-lid="${line.id}"]`);
+      if (!row) return;
+      const search = row.querySelector('.ln-search');
+      const list = row.querySelector('.ln-list');
+      const picked = row.querySelector('.ln-picked');
+      const qty = row.querySelector('.ln-qty');
+      const unit = row.querySelector('.ln-unit');
+      const sub = row.querySelector('.ln-sub');
+      const remove = row.querySelector('.ln-remove');
+
+      const renderList = (q='') => {
+        const needle = q.toLowerCase().trim();
+        const matches = state.products
+          .filter(p => !needle || (p.name+' '+p.model+' '+(p.color||'')+' '+p.category+' '+(p.sku||'')).toLowerCase().includes(needle))
+          .slice(0, 40);
+        list.innerHTML = matches.length ? matches.map(p => `
+          <button type="button" data-pid="${p.id}" class="w-full text-left px-3 py-2 text-sm hover:bg-ivory-100 dark:hover:bg-white/10 flex items-center gap-2">
+            <span class="flex-1 truncate">
+              <span class="font-medium">${escapeHtml(p.name)}</span>
+              <span class="text-slate-500"> · ${escapeHtml(p.model||'—')}</span>
+              ${p.color ? ` · ${colorChip(p.color)}` : ''}
+            </span>
+            <span class="text-xs text-slate-400">compra ${fmt.format(p.buyPrice)}</span>
+          </button>`).join('') : `<div class="px-3 py-2 text-sm text-slate-500">Sin resultados</div>`;
+        list.querySelectorAll('[data-pid]').forEach(b => b.onclick = () => pick(b.dataset.pid));
+        list.classList.remove('hidden');
+      };
+
+      const pick = (id) => {
+        const p = state.products.find(x=>x.id===id);
+        if (!p) return;
+        line.productId = id;
+        search.value = productLabel(p);
+        unit.placeholder = `Toma ${fmt.format(p.buyPrice)} si lo dejás vacío`;
+        picked.innerHTML = `Stock actual: <b>${p.stock}</b> · P. compra actual ${fmt.format(p.buyPrice)} · P. venta ${fmt.format(p.sellPrice)}`;
+        list.classList.add('hidden');
+        sub.textContent = fmt.format(lineSubtotal(line));
+        recalcTotal();
+      };
+
+      search.oninput = () => { line.productId = ''; renderList(search.value); };
+      search.onfocus = () => renderList(search.value);
+      qty.oninput = () => { line.qty = parseInt(qty.value)||0; sub.textContent = fmt.format(lineSubtotal(line)); recalcTotal(); };
+      unit.oninput = () => { line.unitPrice = unit.value; sub.textContent = fmt.format(lineSubtotal(line)); recalcTotal(); };
+      remove.onclick = () => {
+        if (lines.length === 1) return toast('Tiene que haber al menos un producto','err');
+        const idx = lines.findIndex(l => l.id === line.id);
+        if (idx >= 0) lines.splice(idx,1);
+        renderLines();
+      };
+    }
+
+    function renderLines() {
+      container.innerHTML = lines.map((l,i) => lineHtml(l,i)).join('');
+      lines.forEach(l => bindLine(l));
+      recalcTotal();
+    }
+
+    $('#addLine').onclick = () => {
+      lines.push({ id: uid(), productId:'', qty:1, unitPrice:'' });
+      renderLines();
+    };
+
+    document.addEventListener('mousedown', (e) => {
+      container.querySelectorAll('.ln-list').forEach(list => {
+        if (!list.contains(e.target) && !list.previousElementSibling?.contains(e.target)) list.classList.add('hidden');
+      });
+    });
+
+    $('#cancel').onclick = closeModal;
+    $('#save').onclick = () => {
+      const prepared = [];
+      for (let i=0; i<lines.length; i++) {
+        const l = lines[i];
+        const p = state.products.find(x=>x.id===l.productId);
+        if (!p) return toast(`Producto ${i+1}: seleccioná un producto`,'err');
+        const q = parseInt(l.qty)||0;
+        if (q<=0) return toast(`Producto ${i+1}: cantidad inválida`,'err');
+        const explicit = l.unitPrice === '' || l.unitPrice === null ? null : parseFloat(l.unitPrice);
+        const u = (explicit !== null && isFinite(explicit) && explicit >= 0) ? explicit : p.buyPrice;
+        prepared.push({ p, q, u, explicit: explicit !== null && isFinite(explicit) && explicit >= 0 });
+      }
+
+      const date = new Date().toISOString();
+      const note = $('#mNote').value.trim();
+      const movs = [];
+      const touched = new Set();
+      for (const { p, q, u, explicit } of prepared) {
+        const mov = { id: uid(), type:'in', productId:p.id, qty:q, unitCost:u, date, note };
+        if (explicit) p.buyPrice = u;
+        p.stock += q;
+        state.movements.push(mov);
+        movs.push(mov);
+        touched.add(p.id);
+      }
+      save(); closeModal(); render();
+      toast(`Ingreso registrado · ${movs.length} ${movs.length===1?'producto':'productos'}`);
+      if (cloudReady) {
+        const ops = [];
+        for (const m of movs) ops.push(cloudInsertMovement(m));
+        for (const pid of touched) ops.push(cloudUpsertProduct(state.products.find(p=>p.id===pid)));
+        Promise.all(ops).catch(e => toast('Error nube: '+e.message,'err'));
+      }
+    };
+
+    renderLines();
+  }, 'lg');
+}
+
+function saleForm() {
+  const lines = [{ id: uid(), productId: '', qty: 1, unitPrice: 0 }];
+  const productLabel = p => `${p.name} · ${p.model||'—'}${p.color?` · ${p.color}`:''}`;
+
+  const lineHtml = (line, idx) => {
+    const p = state.products.find(x=>x.id===line.productId);
+    const searchVal = p ? escapeHtml(productLabel(p)) : '';
+    const pickedHtml = p ? `Stock disponible: <b>${p.stock}</b> · P. compra ${fmt.format(p.buyPrice)} · P. venta ${fmt.format(p.sellPrice)}` : '';
+    const qtyMax = p ? ` max="${p.stock}"` : '';
+    return `
+    <div class="line-row border border-slate-200 dark:border-white/10 rounded-xl p-3" data-lid="${line.id}">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-xs font-semibold text-slate-500">Producto ${idx+1}</div>
+        <button type="button" class="ln-remove text-rose-600 text-xs hover:underline">Quitar</button>
+      </div>
+      <div class="relative">
+        <input class="ln-search w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-ivory-500" placeholder="Buscar por nombre, modelo, color o SKU..." autocomplete="off" value="${searchVal}"/>
+        <div class="ln-list hidden absolute left-0 right-0 mt-1 z-10 max-h-64 overflow-y-auto scrollbar-thin bg-white dark:bg-ivory-700 border border-slate-200 dark:border-white/10 rounded-xl shadow-lg"></div>
+      </div>
+      <div class="ln-picked mt-1 text-xs text-slate-500">${pickedHtml}</div>
+      <div class="grid grid-cols-3 gap-2 mt-2 text-sm">
+        <div>
+          <label class="block text-xs mb-1">Cantidad</label>
+          <input class="ln-qty w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10" type="number" min="1"${qtyMax} value="${line.qty}"/>
+          <div class="ln-warn text-xs text-rose-600 mt-1 hidden"></div>
+        </div>
+        <div>
+          <label class="block text-xs mb-1">P. Unit.</label>
+          <input class="ln-unit w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10" type="number" min="0" step="0.01" value="${line.unitPrice}"/>
+        </div>
+        <div>
+          <label class="block text-xs mb-1">Subtotal</label>
+          <div class="ln-sub px-3 py-2 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 font-semibold">${fmt.format(line.qty*line.unitPrice)}</div>
+        </div>
+      </div>
+    </div>`;
+  };
+
+  openModal(`
+    <h3 class="text-lg font-semibold mb-4">Nueva venta</h3>
+    <div id="saleLines" class="space-y-3"></div>
+    <button id="addLine" type="button" class="mt-3 w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-sm font-medium">+ Agregar producto</button>
+
+    <div class="flex items-center justify-between mt-4 px-2">
+      <div class="text-sm text-slate-500">Total</div>
+      <div id="saleTotal" class="text-xl font-bold">${fmt.format(0)}</div>
+    </div>
+
+    <div class="pt-4 mt-4 border-t border-slate-200 dark:border-white/10">
+      <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Cliente</div>
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="col-span-2">
+          <label class="block mb-1">Celular *</label>
+          <input id="mPhone" autocomplete="off" placeholder="11 5555-5555" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+          <div id="mCustHint" class="text-xs text-slate-500 mt-1"></div>
+        </div>
+        <div>
+          <label class="block mb-1">Nombre *</label>
+          <input id="mFirst" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+        </div>
+        <div>
+          <label class="block mb-1">Apellido</label>
+          <input id="mLast" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+        </div>
+      </div>
+    </div>
+    <div class="mt-3 text-sm">
+      <label class="block mb-1">Nota (opcional)</label>
+      <input id="mNote" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+    </div>
+
+    <div class="flex justify-end gap-2 mt-5">
+      <button id="cancel" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 text-sm">Cancelar</button>
+      <button id="save" class="px-4 py-2 rounded-xl bg-ivory-500 hover:bg-ivory-700 text-white text-sm font-medium">Registrar venta</button>
+    </div>
+  `, () => {
+    const container = $('#saleLines');
+    const totalEl = $('#saleTotal');
+
+    function recalcTotal() {
+      const t = lines.reduce((a,l) => a + (parseFloat(l.qty)||0) * (parseFloat(l.unitPrice)||0), 0);
+      totalEl.textContent = fmt.format(t);
+    }
+
+    function bindLine(line) {
+      const row = container.querySelector(`[data-lid="${line.id}"]`);
+      if (!row) return;
+      const search = row.querySelector('.ln-search');
+      const list = row.querySelector('.ln-list');
+      const picked = row.querySelector('.ln-picked');
+      const qty = row.querySelector('.ln-qty');
+      const unit = row.querySelector('.ln-unit');
+      const sub = row.querySelector('.ln-sub');
+      const remove = row.querySelector('.ln-remove');
+
+      const renderList = (q='') => {
+        const needle = q.toLowerCase().trim();
+        const matches = state.products
+          .filter(p => p.stock > 0)
+          .filter(p => !needle || (p.name+' '+p.model+' '+(p.color||'')+' '+p.category+' '+(p.sku||'')).toLowerCase().includes(needle))
+          .slice(0, 40);
+        list.innerHTML = matches.length ? matches.map(p => `
+          <button type="button" data-pid="${p.id}" class="w-full text-left px-3 py-2 text-sm hover:bg-ivory-100 dark:hover:bg-white/10 flex items-center gap-2">
+            <span class="flex-1 truncate">
+              <span class="font-medium">${escapeHtml(p.name)}</span>
+              <span class="text-slate-500"> · ${escapeHtml(p.model||'—')}</span>
+              ${p.color ? ` · ${colorChip(p.color)}` : ''}
+            </span>
+            <span class="text-xs ${p.stock<=state.settings.lowStock?'text-amber-500':'text-slate-400'}">stock ${p.stock}</span>
+          </button>`).join('') : `<div class="px-3 py-2 text-sm text-slate-500">Sin productos con stock disponible</div>`;
+        list.querySelectorAll('[data-pid]').forEach(b => b.onclick = () => pick(b.dataset.pid));
+        list.classList.remove('hidden');
+      };
+
+      const warn = row.querySelector('.ln-warn');
+      const checkStock = () => {
+        const p = state.products.find(x=>x.id===line.productId);
+        if (!p) { warn.classList.add('hidden'); return; }
+        const usedElsewhere = lines.filter(l => l.id !== line.id && l.productId === p.id).reduce((a,l)=>a+(parseInt(l.qty)||0),0);
+        const max = p.stock - usedElsewhere;
+        if (line.qty > max) {
+          warn.textContent = usedElsewhere>0 ? `Máximo ${max} (ya hay ${usedElsewhere} en otras líneas, stock total ${p.stock})` : `Stock insuficiente · disponible ${p.stock}`;
+          warn.classList.remove('hidden');
+        } else {
+          warn.classList.add('hidden');
+        }
+      };
+
+      const pick = (id) => {
+        const p = state.products.find(x=>x.id===id);
+        if (!p) return;
+        if (p.stock <= 0) return toast('Ese producto no tiene stock','err');
+        line.productId = id;
+        line.unitPrice = p.sellPrice;
+        unit.value = p.sellPrice;
+        search.value = productLabel(p);
+        picked.innerHTML = `Stock disponible: <b>${p.stock}</b> · P. compra ${fmt.format(p.buyPrice)} · P. venta ${fmt.format(p.sellPrice)}`;
+        qty.max = p.stock;
+        list.classList.add('hidden');
+        sub.textContent = fmt.format(line.qty * line.unitPrice);
+        recalcTotal();
+        checkStock();
+      };
+
+      search.oninput = () => { line.productId = ''; warn.classList.add('hidden'); renderList(search.value); };
+      search.onfocus = () => renderList(search.value);
+      qty.oninput = () => {
+        const p = state.products.find(x=>x.id===line.productId);
+        let v = parseInt(qty.value)||0;
+        if (p && v > p.stock) { v = p.stock; qty.value = v; toast(`Máximo disponible: ${p.stock}`,'err'); }
+        line.qty = v;
+        sub.textContent = fmt.format(line.qty*line.unitPrice);
+        recalcTotal();
+        checkStock();
+      };
+      unit.oninput = () => { line.unitPrice = parseFloat(unit.value)||0; sub.textContent = fmt.format(line.qty*line.unitPrice); recalcTotal(); };
+      remove.onclick = () => {
+        if (lines.length === 1) return toast('Tiene que haber al menos un producto','err');
+        const idx = lines.findIndex(l => l.id === line.id);
+        if (idx >= 0) lines.splice(idx,1);
+        renderLines();
+      };
+      checkStock();
+    }
+
+    function renderLines() {
+      container.innerHTML = lines.map((l,i) => lineHtml(l,i)).join('');
+      lines.forEach(l => bindLine(l));
+      recalcTotal();
+    }
+
+    $('#addLine').onclick = () => {
+      lines.push({ id: uid(), productId:'', qty:1, unitPrice:0 });
+      renderLines();
+    };
+
+    document.addEventListener('mousedown', (e) => {
+      container.querySelectorAll('.ln-list').forEach(list => {
+        if (!list.contains(e.target) && !list.previousElementSibling?.contains(e.target)) list.classList.add('hidden');
+      });
+    });
+
+    const phone = $('#mPhone'), first = $('#mFirst'), last = $('#mLast'), hint = $('#mCustHint');
+    phone.oninput = () => {
+      const v = phone.value.trim();
+      if (!v) { hint.textContent=''; return; }
+      const found = state.customers.find(c => c.phone === v);
+      if (found) {
+        first.value = found.firstName;
+        last.value = found.lastName;
+        hint.innerHTML = `<span class="text-emerald-600">Cliente existente: ${escapeHtml(found.firstName)} ${escapeHtml(found.lastName)}</span>`;
+      } else {
+        hint.innerHTML = `<span class="text-slate-500">Cliente nuevo — se creará al guardar.</span>`;
+      }
+    };
+
+    $('#cancel').onclick = closeModal;
+    $('#save').onclick = () => {
+      // Validar líneas
+      const prepared = [];
+      for (let i=0; i<lines.length; i++) {
+        const l = lines[i];
+        const p = state.products.find(x=>x.id===l.productId);
+        if (!p) return toast(`Producto ${i+1}: seleccioná un producto`,'err');
+        const q = parseInt(l.qty)||0;
+        const u = parseFloat(l.unitPrice)||0;
+        if (q<=0) return toast(`Producto ${i+1}: cantidad inválida`,'err');
+        if (q > p.stock) return toast(`${p.name}: stock insuficiente (disp. ${p.stock})`,'err');
+        prepared.push({ p, q, u });
+      }
+      // Agrupar mismo producto para sumar cantidades y validar stock total
+      const usage = new Map();
+      for (const it of prepared) usage.set(it.p.id, (usage.get(it.p.id)||0) + it.q);
+      for (const [pid, total] of usage) {
+        const p = state.products.find(x=>x.id===pid);
+        if (total > p.stock) return toast(`${p.name}: stock insuficiente total (pediste ${total}, hay ${p.stock})`,'err');
+      }
+
+      // Cliente
+      const phoneV = phone.value.trim();
+      const firstV = first.value.trim();
+      const lastV  = last.value.trim();
+      if (!phoneV) return toast('El celular del cliente es obligatorio','err');
+      if (!firstV) return toast('El nombre del cliente es obligatorio','err');
+      let customer = state.customers.find(c => c.phone === phoneV);
+      if (customer) {
+        if (firstV && firstV !== customer.firstName) customer.firstName = firstV;
+        if (lastV && lastV !== customer.lastName) customer.lastName = lastV;
+      } else {
+        customer = { id: uid(), firstName: firstV, lastName: lastV, phone: phoneV, createdAt: new Date().toISOString() };
+        state.customers.push(customer);
+      }
+
+      const date = new Date().toISOString();
+      const note = $('#mNote').value.trim();
+      const movs = [];
+      for (const { p, q, u } of prepared) {
+        const mov = { id: uid(), type:'out', productId:p.id, qty:q, unitPrice:u, unitCost:p.buyPrice, date, note, customerId: customer.id };
+        p.stock -= q;
+        state.movements.push(mov);
+        movs.push(mov);
+      }
+      save(); closeModal(); render();
+      toast(`Venta registrada · ${movs.length} ${movs.length===1?'producto':'productos'}`);
+      if (cloudReady) {
+        const ops = [cloudUpsertCustomer(customer)];
+        for (const m of movs) ops.push(cloudInsertMovement(m));
+        for (const pid of new Set(prepared.map(x => x.p.id))) ops.push(cloudUpsertProduct(state.products.find(p=>p.id===pid)));
+        Promise.all(ops).catch(e => toast('Error nube: '+e.message,'err'));
+      }
+    };
+
+    renderLines();
+  }, 'lg');
+}
+
 // =====================================================================
 //  Export / Import
 // =====================================================================
@@ -1269,6 +1999,13 @@ function render() {
     $('#pageTitle').textContent = cat;
     html = viewCategory(cat);
   }
+  else if (currentRoute.startsWith('model:')) {
+    const parts = currentRoute.split(':');
+    const cat = parts[1];
+    const model = parts.slice(2).join(':');
+    $('#pageTitle').textContent = `${cat} · ${model}`;
+    html = viewModelDetail(cat, model);
+  }
   $('#view').innerHTML = html;
 
   bindViewEvents();
@@ -1292,8 +2029,24 @@ function bindViewEvents() {
         }
       }
       else if (a==='add-stock') addStockForm(id);
-      else if (a==='new-sale') movementForm('out');
-      else if (a==='new-inbound') movementForm('in');
+      else if (a==='new-sale') saleForm();
+      else if (a==='new-inbound') ingresoForm();
+      else if (a==='seed-fundas') seedFundasForm();
+      else if (a==='bulk-price') {
+        const kind = b.dataset.bulk; // 'silicona' | 'magsafe'
+        const targets = state.products.filter(p => p.category==='Fundas' && (kind==='magsafe' ? isFundaMagsafe(p) : !isFundaMagsafe(p)));
+        if (!targets.length) return toast('No hay fundas '+(kind==='magsafe'?'MagSafe':'de silicona'),'info');
+        const sample = targets[0].buyPrice;
+        const same = targets.every(p => p.buyPrice === sample);
+        const hint = same ? `Actual: ${fmt.format(sample)}` : 'Precios mixtos';
+        const v = prompt(`Nuevo precio de compra para ${targets.length} fundas ${kind==='magsafe'?'MagSafe (Transparentes)':'de Silicona'} en TODOS los modelos.\n${hint}\n\nIngresá el nuevo precio:`);
+        if (v === null) return;
+        const newPrice = parseFloat(v);
+        if (!isFinite(newPrice) || newPrice < 0) return toast('Precio inválido','err');
+        targets.forEach(p => p.buyPrice = newPrice);
+        save(); render(); toast(`${targets.length} fundas actualizadas`);
+        if (cloudReady) Promise.all(targets.map(cloudUpsertProduct)).catch(e => toast('Error nube: '+e.message,'err'));
+      }
       else if (a==='export-cat') exportCategory(cat);
       else if (a==='export-mov') exportMovements();
       else if (a==='backup') backup();
@@ -1330,6 +2083,12 @@ function bindViewEvents() {
     };
   });
   $$('#view [data-go]').forEach(b => b.onclick = () => navigate(b.dataset.go));
+
+  // Model card click → drill-down
+  $$('#view .model-card[data-model]').forEach(b => b.onclick = () => {
+    const cat = currentRoute.split(':')[1];
+    navigate(`model:${cat}:${b.dataset.model}`);
+  });
 
   // Category filters
   const cs = $('#catSearch'); if (cs) cs.oninput = e => { listFilters.q = e.target.value; render(); cs.focus(); };
@@ -1377,12 +2136,38 @@ function bindViewEvents() {
     if (!cloudReady) return toast('Conectá primero','err');
     try {
       const data = await cloudLoad();
-      state.products = data.products; state.movements = data.movements; state.customers = data.customers; save(); render();
+      state.products = data.products; state.movements = data.movements; state.customers = data.customers;
+      const changed = migratePlateado(state.products);
+      save(); render();
       toast('Datos descargados');
+      if (changed.length) {
+        try { await Promise.all(changed.map(cloudUpsertProduct)); toast(`Migrados ${changed.length} colores`,'ok'); }
+        catch (e) { toast('Error subiendo migración: '+e.message,'err'); }
+      }
     } catch (e) { toast('Error: '+e.message,'err'); }
   };
   const disc = $('#disconnectSupa'); if (disc) disc.onclick = () => {
     clearCfg(); supa=null; cloudReady=false; render(); toast('Desconectado');
+  };
+  const wipe = $('#wipeSupa'); if (wipe) wipe.onclick = async () => {
+    if (!cloudReady) return toast('Conectá primero','err');
+    const typed = prompt('Esto BORRA todos los productos, movimientos y clientes de Supabase.\nLos datos locales no se tocan.\n\nEscribí BORRAR para confirmar:');
+    if (!typed || typed.trim().toUpperCase() !== 'BORRAR') {
+      if (typed !== null) toast('Confirmación incorrecta. No se borró nada.','err');
+      return;
+    }
+    try {
+      // Orden: movimientos → productos → clientes (por FKs)
+      const r1 = await supa.from('movements').delete().not('id','is',null);
+      if (r1.error) throw r1.error;
+      const r2 = await supa.from('products').delete().not('id','is',null);
+      if (r2.error) throw r2.error;
+      const r3 = await supa.from('customers').delete().not('id','is',null);
+      if (r3.error && r3.error.code !== '42P01') throw r3.error;
+      toast('Datos de la nube eliminados','ok');
+    } catch (e) {
+      toast('Error: '+e.message,'err');
+    }
   };
 }
 
@@ -1414,7 +2199,7 @@ $('#globalSearch').oninput = e => {
 };
 
 // Init
-if (location.hash) currentRoute = location.hash.slice(1);
+if (location.hash) { try { currentRoute = decodeURI(location.hash.slice(1)); } catch { currentRoute = location.hash.slice(1); } }
 initSupabase();
 render();
 
@@ -1426,9 +2211,16 @@ render();
       state.products = data.products;
       state.movements = data.movements;
       state.customers = data.customers;
+      const changed = migratePlateado(state.products);
       save();
       render();
       toast('Sincronizado con Supabase ✨','ok');
+      if (changed.length) {
+        try {
+          await Promise.all(changed.map(cloudUpsertProduct));
+          toast(`Migrados ${changed.length} colores Plateado → Otros en la nube`,'ok');
+        } catch (e) { toast('Error subiendo migración: '+e.message,'err'); }
+      }
     }
   } catch (e) {
     console.error(e);
