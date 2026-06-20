@@ -191,6 +191,11 @@ async function cloudInsertMovement(m) {
   const { error } = await supa.from('movements').insert(movToRow(m));
   if (error) throw error;
 }
+async function cloudDeleteMovement(id) {
+  if (!cloudReady) return;
+  const { error } = await supa.from('movements').delete().eq('id', id);
+  if (error) throw error;
+}
 
 // ---------- Estado ----------
 const defaultState = () => ({
@@ -783,11 +788,12 @@ function viewMovements() {
               <th class="px-4 py-3 text-right">Total</th>
               <th class="px-4 py-3">Cliente</th>
               <th class="px-4 py-3">Nota</th>
+              <th class="px-4 py-3"></th>
             </tr>
           </thead>
           <tbody>
             ${(() => {
-              if (!list.length) return `<tr><td colspan="7" class="px-4 py-10 text-center text-slate-500">Sin movimientos para los filtros aplicados.</td></tr>`;
+              if (!list.length) return `<tr><td colspan="8" class="px-4 py-10 text-center text-slate-500">Sin movimientos para los filtros aplicados.</td></tr>`;
               const groups = new Map();
               for (const m of list) {
                 const key = `${m.type}|${m.date}|${m.customerId||''}|${m.note||''}`;
@@ -819,6 +825,12 @@ function viewMovements() {
                   <td class="px-4 py-2 text-right font-semibold">${fmt.format(total)}</td>
                   <td class="px-4 py-2">${c ? `${escapeHtml(c.firstName)} ${escapeHtml(c.lastName)}<div class="text-xs text-slate-400">${escapeHtml(c.phone)}</div>` : '<span class="text-slate-400">—</span>'}</td>
                   <td class="px-4 py-2 text-slate-500">${escapeHtml(first.note||'')}</td>
+                  <td class="px-4 py-2 text-right whitespace-nowrap">
+                    ${first.type==='out' ? `
+                      <button class="px-2 py-1 text-xs rounded-lg bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20" data-action="edit-sale" data-id="${first.id}">Editar</button>
+                      <button class="px-2 py-1 text-xs rounded-lg bg-rose-100 text-rose-700 hover:bg-rose-200" data-action="delete-sale" data-id="${first.id}">Eliminar</button>
+                    ` : ''}
+                  </td>
                 </tr>`;
               }).join('');
             })()}
@@ -1653,15 +1665,25 @@ function ingresoForm() {
   }, 'lg');
 }
 
-function saleForm() {
-  const lines = [{ id: uid(), productId: '', qty: 1, unitPrice: 0 }];
+function saleForm(existing = null) {
+  const isEdit = Array.isArray(existing) && existing.length > 0;
+  const lines = isEdit
+    ? existing.map(m => ({ id: uid(), productId: m.productId, qty: m.qty, unitPrice: m.unitPrice || 0 }))
+    : [{ id: uid(), productId: '', qty: 1, unitPrice: 0 }];
+  const initialCustomer = isEdit && existing[0].customerId ? state.customers.find(c => c.id === existing[0].customerId) : null;
+  const initialNote = isEdit ? (existing[0].note || '') : '';
+  const editDate = isEdit ? existing[0].date : null;
+  // Stock "virtual" disponible considerando que los items de la venta editada ya están descontados
+  const editedQtyByProduct = new Map();
+  if (isEdit) for (const m of existing) editedQtyByProduct.set(m.productId, (editedQtyByProduct.get(m.productId)||0) + m.qty);
+  const availableStock = p => p.stock + (editedQtyByProduct.get(p.id) || 0);
   const productLabel = p => `${p.name} · ${p.model||'—'}${p.color?` · ${p.color}`:''}`;
 
   const lineHtml = (line, idx) => {
     const p = state.products.find(x=>x.id===line.productId);
     const searchVal = p ? escapeHtml(productLabel(p)) : '';
-    const pickedHtml = p ? `Stock disponible: <b>${p.stock}</b> · P. compra ${fmt.format(p.buyPrice)} · P. venta ${fmt.format(p.sellPrice)}` : '';
-    const qtyMax = p ? ` max="${p.stock}"` : '';
+    const pickedHtml = p ? `Stock disponible: <b>${availableStock(p)}</b> · P. compra ${fmt.format(p.buyPrice)} · P. venta ${fmt.format(p.sellPrice)}` : '';
+    const qtyMax = p ? ` max="${availableStock(p)}"` : '';
     return `
     <div class="line-row border border-slate-200 dark:border-white/10 rounded-xl p-3" data-lid="${line.id}">
       <div class="flex items-center justify-between mb-2">
@@ -1692,7 +1714,7 @@ function saleForm() {
   };
 
   openModal(`
-    <h3 class="text-lg font-semibold mb-4">Nueva venta</h3>
+    <h3 class="text-lg font-semibold mb-4">${isEdit ? 'Editar venta' : 'Nueva venta'}</h3>
     <div id="saleLines" class="space-y-3"></div>
     <button id="addLine" type="button" class="mt-3 w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-sm font-medium">+ Agregar producto</button>
 
@@ -1726,7 +1748,7 @@ function saleForm() {
 
     <div class="flex justify-end gap-2 mt-5">
       <button id="cancel" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 text-sm">Cancelar</button>
-      <button id="save" class="px-4 py-2 rounded-xl bg-ivory-500 hover:bg-ivory-700 text-white text-sm font-medium">Registrar venta</button>
+      <button id="save" class="px-4 py-2 rounded-xl bg-ivory-500 hover:bg-ivory-700 text-white text-sm font-medium">${isEdit ? 'Guardar cambios' : 'Registrar venta'}</button>
     </div>
   `, () => {
     const container = $('#saleLines');
@@ -1751,7 +1773,7 @@ function saleForm() {
       const renderList = (q='') => {
         const needle = q.toLowerCase().trim();
         const matches = state.products
-          .filter(p => p.stock > 0)
+          .filter(p => availableStock(p) > 0)
           .filter(p => !needle || (p.name+' '+p.model+' '+(p.color||'')+' '+p.category+' '+(p.sku||'')).toLowerCase().includes(needle))
           .slice(0, 40);
         list.innerHTML = matches.length ? matches.map(p => `
@@ -1761,7 +1783,7 @@ function saleForm() {
               <span class="text-slate-500"> · ${escapeHtml(p.model||'—')}</span>
               ${p.color ? ` · ${colorChip(p.color)}` : ''}
             </span>
-            <span class="text-xs ${p.stock<=state.settings.lowStock?'text-amber-500':'text-slate-400'}">stock ${p.stock}</span>
+            <span class="text-xs ${availableStock(p)<=state.settings.lowStock?'text-amber-500':'text-slate-400'}">stock ${availableStock(p)}</span>
           </button>`).join('') : `<div class="px-3 py-2 text-sm text-slate-500">Sin productos con stock disponible</div>`;
         list.querySelectorAll('[data-pid]').forEach(b => b.onclick = () => pick(b.dataset.pid));
         list.classList.remove('hidden');
@@ -1772,9 +1794,10 @@ function saleForm() {
         const p = state.products.find(x=>x.id===line.productId);
         if (!p) { warn.classList.add('hidden'); return; }
         const usedElsewhere = lines.filter(l => l.id !== line.id && l.productId === p.id).reduce((a,l)=>a+(parseInt(l.qty)||0),0);
-        const max = p.stock - usedElsewhere;
+        const avail = availableStock(p);
+        const max = avail - usedElsewhere;
         if (line.qty > max) {
-          warn.textContent = usedElsewhere>0 ? `Máximo ${max} (ya hay ${usedElsewhere} en otras líneas, stock total ${p.stock})` : `Stock insuficiente · disponible ${p.stock}`;
+          warn.textContent = usedElsewhere>0 ? `Máximo ${max} (ya hay ${usedElsewhere} en otras líneas, stock total ${avail})` : `Stock insuficiente · disponible ${avail}`;
           warn.classList.remove('hidden');
         } else {
           warn.classList.add('hidden');
@@ -1784,13 +1807,13 @@ function saleForm() {
       const pick = (id) => {
         const p = state.products.find(x=>x.id===id);
         if (!p) return;
-        if (p.stock <= 0) return toast('Ese producto no tiene stock','err');
+        if (availableStock(p) <= 0) return toast('Ese producto no tiene stock','err');
         line.productId = id;
         line.unitPrice = p.sellPrice;
         unit.value = p.sellPrice;
         search.value = productLabel(p);
-        picked.innerHTML = `Stock disponible: <b>${p.stock}</b> · P. compra ${fmt.format(p.buyPrice)} · P. venta ${fmt.format(p.sellPrice)}`;
-        qty.max = p.stock;
+        picked.innerHTML = `Stock disponible: <b>${availableStock(p)}</b> · P. compra ${fmt.format(p.buyPrice)} · P. venta ${fmt.format(p.sellPrice)}`;
+        qty.max = availableStock(p);
         list.classList.add('hidden');
         sub.textContent = fmt.format(line.qty * line.unitPrice);
         recalcTotal();
@@ -1802,7 +1825,7 @@ function saleForm() {
       qty.oninput = () => {
         const p = state.products.find(x=>x.id===line.productId);
         let v = parseInt(qty.value)||0;
-        if (p && v > p.stock) { v = p.stock; qty.value = v; toast(`Máximo disponible: ${p.stock}`,'err'); }
+        if (p && v > availableStock(p)) { v = availableStock(p); qty.value = v; toast(`Máximo disponible: ${availableStock(p)}`,'err'); }
         line.qty = v;
         sub.textContent = fmt.format(line.qty*line.unitPrice);
         recalcTotal();
@@ -1836,6 +1859,15 @@ function saleForm() {
     });
 
     const phone = $('#mPhone'), first = $('#mFirst'), last = $('#mLast'), hint = $('#mCustHint');
+    if (isEdit) {
+      $('#mNote').value = initialNote;
+      if (initialCustomer) {
+        phone.value = initialCustomer.phone || '';
+        first.value = initialCustomer.firstName || '';
+        last.value = initialCustomer.lastName || '';
+        hint.innerHTML = `<span class="text-emerald-600">Cliente existente: ${escapeHtml(initialCustomer.firstName)} ${escapeHtml(initialCustomer.lastName)}</span>`;
+      }
+    }
     phone.oninput = () => {
       const v = phone.value.trim();
       if (!v) { hint.textContent=''; return; }
@@ -1860,7 +1892,7 @@ function saleForm() {
         const q = parseInt(l.qty)||0;
         const u = parseFloat(l.unitPrice)||0;
         if (q<=0) return toast(`Producto ${i+1}: cantidad inválida`,'err');
-        if (q > p.stock) return toast(`${p.name}: stock insuficiente (disp. ${p.stock})`,'err');
+        if (q > availableStock(p)) return toast(`${p.name}: stock insuficiente (disp. ${availableStock(p)})`,'err');
         prepared.push({ p, q, u });
       }
       // Agrupar mismo producto para sumar cantidades y validar stock total
@@ -1868,7 +1900,7 @@ function saleForm() {
       for (const it of prepared) usage.set(it.p.id, (usage.get(it.p.id)||0) + it.q);
       for (const [pid, total] of usage) {
         const p = state.products.find(x=>x.id===pid);
-        if (total > p.stock) return toast(`${p.name}: stock insuficiente total (pediste ${total}, hay ${p.stock})`,'err');
+        if (total > availableStock(p)) return toast(`${p.name}: stock insuficiente total (pediste ${total}, hay ${availableStock(p)})`,'err');
       }
 
       // Cliente
@@ -1886,7 +1918,18 @@ function saleForm() {
         state.customers.push(customer);
       }
 
-      const date = new Date().toISOString();
+      const deletedIds = [];
+      const affectedProductIds = new Set(prepared.map(x => x.p.id));
+      if (isEdit) {
+        for (const oldM of existing) {
+          const prod = state.products.find(pp => pp.id === oldM.productId);
+          if (prod) { prod.stock += oldM.qty; affectedProductIds.add(prod.id); }
+          deletedIds.push(oldM.id);
+        }
+        state.movements = state.movements.filter(m => !deletedIds.includes(m.id));
+      }
+
+      const date = isEdit ? editDate : new Date().toISOString();
       const note = $('#mNote').value.trim();
       const movs = [];
       for (const { p, q, u } of prepared) {
@@ -1896,11 +1939,12 @@ function saleForm() {
         movs.push(mov);
       }
       save(); closeModal(); render();
-      toast(`Venta registrada · ${movs.length} ${movs.length===1?'producto':'productos'}`);
+      toast(isEdit ? `Venta actualizada · ${movs.length} ${movs.length===1?'producto':'productos'}` : `Venta registrada · ${movs.length} ${movs.length===1?'producto':'productos'}`);
       if (cloudReady) {
         const ops = [cloudUpsertCustomer(customer)];
+        for (const id of deletedIds) ops.push(cloudDeleteMovement(id));
         for (const m of movs) ops.push(cloudInsertMovement(m));
-        for (const pid of new Set(prepared.map(x => x.p.id))) ops.push(cloudUpsertProduct(state.products.find(p=>p.id===pid)));
+        for (const pid of affectedProductIds) ops.push(cloudUpsertProduct(state.products.find(p=>p.id===pid)));
         Promise.all(ops).catch(e => toast('Error nube: '+e.message,'err'));
       }
     };
@@ -2030,6 +2074,38 @@ function bindViewEvents() {
       }
       else if (a==='add-stock') addStockForm(id);
       else if (a==='new-sale') saleForm();
+      else if (a==='edit-sale') {
+        const seed = state.movements.find(m => m.id === id);
+        if (!seed) return toast('No se encontró la venta','err');
+        const group = state.movements.filter(m =>
+          m.type === seed.type && m.date === seed.date &&
+          (m.customerId||'') === (seed.customerId||'') && (m.note||'') === (seed.note||'')
+        );
+        saleForm(group);
+      }
+      else if (a==='delete-sale') {
+        const seed = state.movements.find(m => m.id === id);
+        if (!seed) return toast('No se encontró la venta','err');
+        const group = state.movements.filter(m =>
+          m.type === seed.type && m.date === seed.date &&
+          (m.customerId||'') === (seed.customerId||'') && (m.note||'') === (seed.note||'')
+        );
+        if (!confirm(`¿Eliminar esta venta de ${group.length} ${group.length===1?'producto':'productos'}? El stock se devolverá al inventario.`)) return;
+        const affected = new Set();
+        for (const m of group) {
+          const prod = state.products.find(pp => pp.id === m.productId);
+          if (prod) { prod.stock += m.qty; affected.add(prod.id); }
+        }
+        const deletedIds = group.map(m => m.id);
+        state.movements = state.movements.filter(m => !deletedIds.includes(m.id));
+        save(); render(); toast('Venta eliminada');
+        if (cloudReady) {
+          const ops = [];
+          for (const did of deletedIds) ops.push(cloudDeleteMovement(did));
+          for (const pid of affected) ops.push(cloudUpsertProduct(state.products.find(p=>p.id===pid)));
+          Promise.all(ops).catch(e => toast('Error nube: '+e.message,'err'));
+        }
+      }
       else if (a==='new-inbound') ingresoForm();
       else if (a==='seed-fundas') seedFundasForm();
       else if (a==='bulk-price') {
