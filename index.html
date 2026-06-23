@@ -202,6 +202,7 @@ const defaultState = () => ({
   products: [],     // {id,name,category,model,color,stock,buyPrice,sellPrice,sku,createdAt}
   movements: [],    // {id,type:'in'|'out'|'adj',productId,qty,unitCost,unitPrice,date,note,customerId}
   customers: [],    // {id,firstName,lastName,phone,createdAt}
+  combos: [],       // {id,name,category,components:[{productId,qty}],sellPrice,createdAt}
   settings: {
     theme: 'light',
     currency: 'ARS',
@@ -229,7 +230,7 @@ function load() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return seed(defaultState());
     const s = JSON.parse(raw);
-    const merged = { ...defaultState(), ...s, customers: s.customers||[], settings: { ...defaultState().settings, ...(s.settings||{}) } };
+    const merged = { ...defaultState(), ...s, customers: s.customers||[], combos: s.combos||[], settings: { ...defaultState().settings, ...(s.settings||{}) } };
     if (migratePlateado(merged.products).length) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
     }
@@ -327,6 +328,16 @@ function renderNav() {
       <span>${r.label}</span>
     </button>`).join('');
   $$('#nav .route-btn').forEach(b => b.onclick = () => navigate(b.dataset.route));
+}
+
+// ---------- Combo helpers ----------
+function comboEffectiveStock(combo) {
+  if (!combo.components || !combo.components.length) return 0;
+  return Math.min(...combo.components.map(c => {
+    const p = state.products.find(x => x.id === c.productId);
+    if (!p) return 0;
+    return Math.floor(p.stock / (c.qty || 1));
+  }));
 }
 
 // ---------- Stock helpers ----------
@@ -632,6 +643,46 @@ function viewModelDetail(category, model) {
   `;
 }
 
+function renderCombosSection(category) {
+  const combos = (state.combos || []).filter(c => c.category === category);
+  if (!combos.length) return '';
+  return `
+    <div class="mb-5">
+      <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">Combos</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        ${combos.map(combo => {
+          const eff = comboEffectiveStock(combo);
+          const tone = eff <= 0 ? 'text-rose-600 dark:text-rose-300' : eff <= state.settings.lowStock ? 'text-amber-600 dark:text-amber-300' : 'text-emerald-600 dark:text-emerald-300';
+          return `<div class="bg-white dark:bg-ivory-800 rounded-2xl shadow-sm border border-slate-200 dark:border-white/5 p-4">
+            <div class="flex items-start justify-between gap-2 mb-3">
+              <div class="font-semibold text-sm leading-snug">${escapeHtml(combo.name)}</div>
+              <div class="text-right shrink-0">
+                <div class="text-2xl font-bold ${tone}">${eff}</div>
+                <div class="text-[10px] uppercase tracking-wide text-slate-400">combos</div>
+              </div>
+            </div>
+            <div class="space-y-1 mb-3">
+              ${combo.components.map(c => {
+                const p = state.products.find(x=>x.id===c.productId);
+                if (!p) return '';
+                const pTone = p.stock <= 0 ? 'text-rose-500' : p.stock <= state.settings.lowStock ? 'text-amber-500' : 'text-emerald-600 dark:text-emerald-400';
+                return `<div class="flex justify-between items-center text-xs gap-2">
+                  <span class="truncate text-slate-600 dark:text-slate-300">${escapeHtml(p.name)}${p.model?' · '+escapeHtml(p.model):''}</span>
+                  <span class="font-semibold ${pTone} shrink-0">${p.stock} u.</span>
+                </div>`;
+              }).join('')}
+            </div>
+            <div class="flex flex-wrap gap-1">
+              <button class="px-2 py-1 text-xs rounded-lg bg-ivory-500 text-white hover:bg-ivory-700" data-action="sell-combo" data-id="${combo.id}">Vender combo</button>
+              <button class="px-2 py-1 text-xs rounded-lg bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20" data-action="edit-combo" data-id="${combo.id}">Editar</button>
+              <button class="px-2 py-1 text-xs rounded-lg bg-rose-100 text-rose-700 hover:bg-rose-200" data-action="delete-combo" data-id="${combo.id}">Eliminar</button>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
 function viewCategory(category) {
   if (MODEL_DRILLDOWN.has(category)) return viewCategoryModels(category);
   const showColor = COLOR_CATEGORIES.has(category);
@@ -666,6 +717,8 @@ function viewCategory(category) {
         </div>
       </div>` : ''}
 
+    ${category === 'Cargadores' ? renderCombosSection(category) : ''}
+
     <div class="flex flex-wrap items-center gap-3 mb-4">
       <div class="relative flex-1 min-w-[200px]">
         <input id="catSearch" placeholder="Buscar por nombre / modelo / color / SKU" value="${escapeHtml(listFilters.q)}" class="w-full pl-9 pr-3 py-2 rounded-xl bg-white dark:bg-ivory-800 border border-slate-200 dark:border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-ivory-500"/>
@@ -675,6 +728,7 @@ function viewCategory(category) {
         <input id="lowOnly" type="checkbox" ${listFilters.lowOnly?'checked':''} class="rounded"/> Sólo stock bajo
       </label>
       <button data-action="new-product" data-category="${category}" class="px-4 py-2 rounded-xl bg-ivory-500 hover:bg-ivory-700 text-white text-sm font-medium">+ Producto</button>
+      ${category === 'Cargadores' ? `<button data-action="new-combo" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium">+ Crear combo</button>` : ''}
       <button data-action="export-cat" data-category="${category}" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-sm">Exportar CSV</button>
     </div>
 
@@ -1668,8 +1722,8 @@ function ingresoForm() {
 function saleForm(existing = null) {
   const isEdit = Array.isArray(existing) && existing.length > 0;
   const lines = isEdit
-    ? existing.map(m => ({ id: uid(), productId: m.productId, qty: m.qty, unitPrice: m.unitPrice || 0 }))
-    : [{ id: uid(), productId: '', qty: 1, unitPrice: 0 }];
+    ? existing.map(m => ({ id: uid(), productId: m.productId, comboId: '', qty: m.qty, unitPrice: m.unitPrice || 0 }))
+    : [{ id: uid(), productId: '', comboId: '', qty: 1, unitPrice: 0 }];
   const initialCustomer = isEdit && existing[0].customerId ? state.customers.find(c => c.id === existing[0].customerId) : null;
   const initialNote = isEdit ? (existing[0].note || '') : '';
   const editDate = isEdit ? existing[0].date : null;
@@ -1680,10 +1734,22 @@ function saleForm(existing = null) {
   const productLabel = p => `${p.name} · ${p.model||'—'}${p.color?` · ${p.color}`:''}`;
 
   const lineHtml = (line, idx) => {
-    const p = state.products.find(x=>x.id===line.productId);
-    const searchVal = p ? escapeHtml(productLabel(p)) : '';
-    const pickedHtml = p ? `Stock disponible: <b>${availableStock(p)}</b> · P. compra ${fmt.format(p.buyPrice)} · P. venta ${fmt.format(p.sellPrice)}` : '';
-    const qtyMax = p ? ` max="${availableStock(p)}"` : '';
+    const combo = line.comboId ? (state.combos||[]).find(x=>x.id===line.comboId) : null;
+    const p = !combo ? state.products.find(x=>x.id===line.productId) : null;
+    const effStock = combo ? comboEffectiveStock(combo) : null;
+    let searchVal = '', pickedHtml = '', qtyMax = '';
+    if (combo) {
+      searchVal = escapeHtml(combo.name);
+      pickedHtml = `Combos disponibles: <b>${effStock}</b>` + combo.components.map(c => {
+        const cp = state.products.find(x=>x.id===c.productId);
+        return cp ? ` · ${escapeHtml(cp.name)}: <b>${cp.stock}</b> u.` : '';
+      }).join('');
+      qtyMax = ` max="${effStock}"`;
+    } else if (p) {
+      searchVal = escapeHtml(productLabel(p));
+      pickedHtml = `Stock disponible: <b>${availableStock(p)}</b> · P. compra ${fmt.format(p.buyPrice)} · P. venta ${fmt.format(p.sellPrice)}`;
+      qtyMax = ` max="${availableStock(p)}"`;
+    }
     return `
     <div class="line-row border border-slate-200 dark:border-white/10 rounded-xl p-3" data-lid="${line.id}">
       <div class="flex items-center justify-between mb-2">
@@ -1769,28 +1835,61 @@ function saleForm(existing = null) {
       const unit = row.querySelector('.ln-unit');
       const sub = row.querySelector('.ln-sub');
       const remove = row.querySelector('.ln-remove');
+      const warn = row.querySelector('.ln-warn');
 
       const renderList = (q='') => {
         const needle = q.toLowerCase().trim();
+        const comboMatches = (state.combos||[])
+          .filter(c => comboEffectiveStock(c) > 0)
+          .filter(c => !needle || c.name.toLowerCase().includes(needle))
+          .slice(0, 5);
         const matches = state.products
           .filter(p => availableStock(p) > 0)
           .filter(p => !needle || (p.name+' '+p.model+' '+(p.color||'')+' '+p.category+' '+(p.sku||'')).toLowerCase().includes(needle))
-          .slice(0, 40);
-        list.innerHTML = matches.length ? matches.map(p => `
-          <button type="button" data-pid="${p.id}" class="w-full text-left px-3 py-2 text-sm hover:bg-ivory-100 dark:hover:bg-white/10 flex items-center gap-2">
-            <span class="flex-1 truncate">
-              <span class="font-medium">${escapeHtml(p.name)}</span>
-              <span class="text-slate-500"> · ${escapeHtml(p.model||'—')}</span>
-              ${p.color ? ` · ${colorChip(p.color)}` : ''}
-            </span>
-            <span class="text-xs ${availableStock(p)<=state.settings.lowStock?'text-amber-500':'text-slate-400'}">stock ${availableStock(p)}</span>
-          </button>`).join('') : `<div class="px-3 py-2 text-sm text-slate-500">Sin productos con stock disponible</div>`;
+          .slice(0, 35);
+        if (!comboMatches.length && !matches.length) {
+          list.innerHTML = `<div class="px-3 py-2 text-sm text-slate-500">Sin productos con stock disponible</div>`;
+        } else {
+          const comboHtml = comboMatches.length ? `
+            <div class="px-3 pt-2 pb-0.5 text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Combos</div>
+            ${comboMatches.map(c => {
+              const eff = comboEffectiveStock(c);
+              return `<button type="button" data-cid="${c.id}" class="w-full text-left px-3 py-2 text-sm hover:bg-ivory-100 dark:hover:bg-white/10 flex items-center gap-2">
+                <span class="flex-1 truncate flex items-center gap-1.5">
+                  <span class="text-[10px] bg-ivory-100 dark:bg-ivory-500/20 text-ivory-700 dark:text-ivory-300 px-1.5 py-0.5 rounded-full font-semibold">COMBO</span>
+                  <span class="font-medium">${escapeHtml(c.name)}</span>
+                </span>
+                <span class="text-xs ${eff<=state.settings.lowStock?'text-amber-500':'text-slate-400'}">stock ${eff}</span>
+              </button>`;
+            }).join('')}
+            ${matches.length ? '<div class="mx-3 border-t border-slate-100 dark:border-white/10"></div>' : ''}` : '';
+          const prodHtml = matches.map(p => `
+            <button type="button" data-pid="${p.id}" class="w-full text-left px-3 py-2 text-sm hover:bg-ivory-100 dark:hover:bg-white/10 flex items-center gap-2">
+              <span class="flex-1 truncate">
+                <span class="font-medium">${escapeHtml(p.name)}</span>
+                <span class="text-slate-500"> · ${escapeHtml(p.model||'—')}</span>
+                ${p.color ? ` · ${colorChip(p.color)}` : ''}
+              </span>
+              <span class="text-xs ${availableStock(p)<=state.settings.lowStock?'text-amber-500':'text-slate-400'}">stock ${availableStock(p)}</span>
+            </button>`).join('');
+          list.innerHTML = comboHtml + prodHtml;
+        }
         list.querySelectorAll('[data-pid]').forEach(b => b.onclick = () => pick(b.dataset.pid));
+        list.querySelectorAll('[data-cid]').forEach(b => b.onclick = () => pickCombo(b.dataset.cid));
         list.classList.remove('hidden');
       };
 
-      const warn = row.querySelector('.ln-warn');
       const checkStock = () => {
+        if (line.comboId) {
+          const c = (state.combos||[]).find(x=>x.id===line.comboId);
+          if (!c) { warn.classList.add('hidden'); return; }
+          const eff = comboEffectiveStock(c);
+          if ((parseInt(line.qty)||0) > eff) {
+            warn.textContent = `Stock insuficiente · combos disponibles: ${eff}`;
+            warn.classList.remove('hidden');
+          } else { warn.classList.add('hidden'); }
+          return;
+        }
         const p = state.products.find(x=>x.id===line.productId);
         if (!p) { warn.classList.add('hidden'); return; }
         const usedElsewhere = lines.filter(l => l.id !== line.id && l.productId === p.id).reduce((a,l)=>a+(parseInt(l.qty)||0),0);
@@ -1799,16 +1898,14 @@ function saleForm(existing = null) {
         if (line.qty > max) {
           warn.textContent = usedElsewhere>0 ? `Máximo ${max} (ya hay ${usedElsewhere} en otras líneas, stock total ${avail})` : `Stock insuficiente · disponible ${avail}`;
           warn.classList.remove('hidden');
-        } else {
-          warn.classList.add('hidden');
-        }
+        } else { warn.classList.add('hidden'); }
       };
 
       const pick = (id) => {
         const p = state.products.find(x=>x.id===id);
         if (!p) return;
         if (availableStock(p) <= 0) return toast('Ese producto no tiene stock','err');
-        line.productId = id;
+        line.productId = id; line.comboId = '';
         line.unitPrice = p.sellPrice;
         unit.value = p.sellPrice;
         search.value = productLabel(p);
@@ -1816,20 +1913,43 @@ function saleForm(existing = null) {
         qty.max = availableStock(p);
         list.classList.add('hidden');
         sub.textContent = fmt.format(line.qty * line.unitPrice);
-        recalcTotal();
-        checkStock();
+        recalcTotal(); checkStock();
       };
 
-      search.oninput = () => { line.productId = ''; warn.classList.add('hidden'); renderList(search.value); };
+      const pickCombo = (comboId) => {
+        const c = (state.combos||[]).find(x=>x.id===comboId);
+        if (!c) return;
+        const eff = comboEffectiveStock(c);
+        if (eff <= 0) return toast('Sin stock de combo disponible','err');
+        line.comboId = comboId; line.productId = '';
+        line.unitPrice = c.sellPrice;
+        unit.value = c.sellPrice;
+        search.value = c.name;
+        picked.innerHTML = `Combos disponibles: <b>${eff}</b>` + c.components.map(comp => {
+          const cp = state.products.find(x=>x.id===comp.productId);
+          return cp ? ` · ${escapeHtml(cp.name)}: <b>${cp.stock}</b> u.` : '';
+        }).join('');
+        qty.max = eff;
+        list.classList.add('hidden');
+        sub.textContent = fmt.format((parseInt(qty.value)||0) * c.sellPrice);
+        recalcTotal(); checkStock();
+      };
+
+      search.oninput = () => { line.productId = ''; line.comboId = ''; warn.classList.add('hidden'); renderList(search.value); };
       search.onfocus = () => renderList(search.value);
       qty.oninput = () => {
-        const p = state.products.find(x=>x.id===line.productId);
         let v = parseInt(qty.value)||0;
-        if (p && v > availableStock(p)) { v = availableStock(p); qty.value = v; toast(`Máximo disponible: ${availableStock(p)}`,'err'); }
+        if (line.comboId) {
+          const c = (state.combos||[]).find(x=>x.id===line.comboId);
+          const eff = c ? comboEffectiveStock(c) : 0;
+          if (v > eff) { v = eff; qty.value = v; toast(`Máximo disponible: ${eff}`,'err'); }
+        } else {
+          const p = state.products.find(x=>x.id===line.productId);
+          if (p && v > availableStock(p)) { v = availableStock(p); qty.value = v; toast(`Máximo disponible: ${availableStock(p)}`,'err'); }
+        }
         line.qty = v;
         sub.textContent = fmt.format(line.qty*line.unitPrice);
-        recalcTotal();
-        checkStock();
+        recalcTotal(); checkStock();
       };
       unit.oninput = () => { line.unitPrice = parseFloat(unit.value)||0; sub.textContent = fmt.format(line.qty*line.unitPrice); recalcTotal(); };
       remove.onclick = () => {
@@ -1848,7 +1968,7 @@ function saleForm(existing = null) {
     }
 
     $('#addLine').onclick = () => {
-      lines.push({ id: uid(), productId:'', qty:1, unitPrice:0 });
+      lines.push({ id: uid(), productId:'', comboId:'', qty:1, unitPrice:0 });
       renderLines();
     };
 
@@ -1887,17 +2007,27 @@ function saleForm(existing = null) {
       const prepared = [];
       for (let i=0; i<lines.length; i++) {
         const l = lines[i];
-        const p = state.products.find(x=>x.id===l.productId);
-        if (!p) return toast(`Producto ${i+1}: seleccioná un producto`,'err');
         const q = parseInt(l.qty)||0;
         const u = parseFloat(l.unitPrice)||0;
-        if (q<=0) return toast(`Producto ${i+1}: cantidad inválida`,'err');
-        if (q > availableStock(p)) return toast(`${p.name}: stock insuficiente (disp. ${availableStock(p)})`,'err');
-        prepared.push({ p, q, u });
+        if (q<=0) return toast(`Línea ${i+1}: cantidad inválida`,'err');
+        if (l.comboId) {
+          const combo = (state.combos||[]).find(x=>x.id===l.comboId);
+          if (!combo) return toast(`Línea ${i+1}: seleccioná un producto o combo`,'err');
+          const eff = comboEffectiveStock(combo);
+          if (q > eff) return toast(`${combo.name}: stock insuficiente (disp. ${eff})`,'err');
+          prepared.push({ isCombo:true, combo, q, u });
+        } else {
+          const p = state.products.find(x=>x.id===l.productId);
+          if (!p) return toast(`Línea ${i+1}: seleccioná un producto`,'err');
+          if (q > availableStock(p)) return toast(`${p.name}: stock insuficiente (disp. ${availableStock(p)})`,'err');
+          prepared.push({ isCombo:false, p, q, u });
+        }
       }
-      // Agrupar mismo producto para sumar cantidades y validar stock total
+      // Validar stock total de productos individuales agrupados
       const usage = new Map();
-      for (const it of prepared) usage.set(it.p.id, (usage.get(it.p.id)||0) + it.q);
+      for (const it of prepared) {
+        if (!it.isCombo) usage.set(it.p.id, (usage.get(it.p.id)||0) + it.q);
+      }
       for (const [pid, total] of usage) {
         const p = state.products.find(x=>x.id===pid);
         if (total > availableStock(p)) return toast(`${p.name}: stock insuficiente total (pediste ${total}, hay ${availableStock(p)})`,'err');
@@ -1919,7 +2049,11 @@ function saleForm(existing = null) {
       }
 
       const deletedIds = [];
-      const affectedProductIds = new Set(prepared.map(x => x.p.id));
+      const affectedProductIds = new Set();
+      for (const it of prepared) {
+        if (!it.isCombo) affectedProductIds.add(it.p.id);
+        else it.combo.components.forEach(c => affectedProductIds.add(c.productId));
+      }
       if (isEdit) {
         for (const oldM of existing) {
           const prod = state.products.find(pp => pp.id === oldM.productId);
@@ -1932,25 +2066,260 @@ function saleForm(existing = null) {
       const date = isEdit ? editDate : new Date().toISOString();
       const note = $('#mNote').value.trim();
       const movs = [];
-      for (const { p, q, u } of prepared) {
-        const mov = { id: uid(), type:'out', productId:p.id, qty:q, unitPrice:u, unitCost:p.buyPrice, date, note, customerId: customer.id };
-        p.stock -= q;
-        state.movements.push(mov);
-        movs.push(mov);
+      for (const item of prepared) {
+        if (item.isCombo) {
+          // Expandir combo: un movimiento por cada componente
+          item.combo.components.forEach((comp, idx) => {
+            const cp = state.products.find(x=>x.id===comp.productId);
+            if (!cp) return;
+            const totalQty = item.q * (comp.qty||1);
+            const mov = {
+              id: uid(), type:'out', productId:cp.id, qty:totalQty,
+              unitPrice: idx===0 ? item.u : 0,
+              unitCost: cp.buyPrice, date,
+              note: note || `Combo: ${item.combo.name}`,
+              customerId: customer.id,
+            };
+            cp.stock -= totalQty;
+            state.movements.push(mov);
+            movs.push(mov);
+          });
+        } else {
+          const mov = { id: uid(), type:'out', productId:item.p.id, qty:item.q, unitPrice:item.u, unitCost:item.p.buyPrice, date, note, customerId: customer.id };
+          item.p.stock -= item.q;
+          state.movements.push(mov);
+          movs.push(mov);
+        }
       }
       save(); closeModal(); render();
-      toast(isEdit ? `Venta actualizada · ${movs.length} ${movs.length===1?'producto':'productos'}` : `Venta registrada · ${movs.length} ${movs.length===1?'producto':'productos'}`);
+      toast(isEdit ? `Venta actualizada · ${movs.length} ${movs.length===1?'movimiento':'movimientos'}` : `Venta registrada · ${movs.length} ${movs.length===1?'movimiento':'movimientos'}`);
       if (cloudReady) {
         const ops = [cloudUpsertCustomer(customer)];
         for (const id of deletedIds) ops.push(cloudDeleteMovement(id));
         for (const m of movs) ops.push(cloudInsertMovement(m));
-        for (const pid of affectedProductIds) ops.push(cloudUpsertProduct(state.products.find(p=>p.id===pid)));
+        for (const pid of affectedProductIds) { const pp = state.products.find(p=>p.id===pid); if (pp) ops.push(cloudUpsertProduct(pp)); }
         Promise.all(ops).catch(e => toast('Error nube: '+e.message,'err'));
       }
     };
 
     renderLines();
   }, 'lg');
+}
+
+function comboForm(combo = null) {
+  const isEdit = !!combo;
+  const cargadoresProds = state.products.filter(p => p.category === 'Cargadores');
+
+  openModal(`
+    <h3 class="text-lg font-semibold mb-4">${isEdit ? 'Editar' : 'Nuevo'} combo</h3>
+    <div class="space-y-3 text-sm">
+      <div>
+        <label class="block mb-1">Nombre *</label>
+        <input id="cmbName" value="${escapeHtml(combo?.name || 'Combo Cargador C a Lightning')}" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+      </div>
+      <div>
+        <label class="block mb-1">Precio de venta del combo</label>
+        <input id="cmbSell" type="number" min="0" value="${combo?.sellPrice ?? 0}" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+      </div>
+      <div>
+        <label class="block mb-2">Componentes <span class="text-slate-400">(productos de Cargadores)</span></label>
+        ${cargadoresProds.length ? `
+        <div class="space-y-2 max-h-60 overflow-y-auto scrollbar-thin pr-1">
+          ${cargadoresProds.map(p => {
+            const comp = (combo?.components||[]).find(c => c.productId === p.id);
+            return `<label class="flex items-center gap-2 p-2 rounded-xl border cursor-pointer ${comp ? 'border-ivory-500 bg-ivory-50 dark:bg-ivory-700/40' : 'border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5'}">
+              <input type="checkbox" class="comp-check" data-pid="${p.id}" ${comp ? 'checked' : ''}/>
+              <span class="flex-1">${escapeHtml(p.name)}${p.model ? ' · '+escapeHtml(p.model) : ''} <span class="text-slate-400 text-xs">(stock: ${p.stock})</span></span>
+              <span id="cqwrap_${p.id}" class="flex items-center gap-1 ${comp ? '' : 'hidden'}">
+                <span class="text-xs text-slate-500">Cant:</span>
+                <input type="number" min="1" id="cqty_${p.id}" value="${comp?.qty ?? 1}" class="w-14 px-2 py-1 rounded-lg border border-slate-200 dark:border-white/10 text-xs bg-white dark:bg-ivory-800" onclick="event.stopPropagation()"/>
+              </span>
+            </label>`;
+          }).join('')}
+        </div>` : '<p class="text-xs text-slate-500 py-2">No hay productos en la categoría Cargadores. Creá productos primero.</p>'}
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5">
+      <button id="cancel" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 text-sm">Cancelar</button>
+      <button id="save" class="px-4 py-2 rounded-xl bg-ivory-500 hover:bg-ivory-700 text-white text-sm font-medium">Guardar combo</button>
+    </div>
+  `, () => {
+    $('#cancel').onclick = closeModal;
+    $$('#modalRoot .comp-check').forEach(chk => {
+      chk.onchange = () => {
+        const wrap = document.getElementById(`cqwrap_${chk.dataset.pid}`);
+        if (wrap) wrap.classList.toggle('hidden', !chk.checked);
+        const row = chk.closest('label');
+        if (chk.checked) {
+          row.classList.add('border-ivory-500','bg-ivory-50','dark:bg-ivory-700/40');
+          row.classList.remove('border-slate-200','dark:border-white/10');
+        } else {
+          row.classList.remove('border-ivory-500','bg-ivory-50','dark:bg-ivory-700/40');
+          row.classList.add('border-slate-200','dark:border-white/10');
+        }
+      };
+    });
+    $('#save').onclick = () => {
+      const name = $('#cmbName').value.trim();
+      if (!name) return toast('El nombre es obligatorio','err');
+      const components = [];
+      $$('#modalRoot .comp-check').forEach(chk => {
+        if (chk.checked) {
+          const qtyInput = document.getElementById(`cqty_${chk.dataset.pid}`);
+          components.push({ productId: chk.dataset.pid, qty: parseInt(qtyInput?.value)||1 });
+        }
+      });
+      if (!components.length) return toast('Seleccioná al menos un componente','err');
+      const data = { name, category:'Cargadores', sellPrice: parseFloat($('#cmbSell').value)||0, components };
+      if (isEdit) { Object.assign(combo, data); }
+      else { state.combos = state.combos || []; state.combos.push({ id:uid(), createdAt:new Date().toISOString(), ...data }); }
+      save(); closeModal(); render(); toast('Combo guardado');
+    };
+  });
+}
+
+function sellComboModal(combo) {
+  const components = combo.components || [];
+
+  // Build component rows HTML (sin template literal anidado para evitar bugs)
+  let compRowsHtml = '';
+  for (const c of components) {
+    const p = state.products.find(x => x.id === c.productId);
+    if (!p) continue;
+    const tone = p.stock <= 0 ? 'text-rose-600' : p.stock <= state.settings.lowStock ? 'text-amber-600' : 'text-emerald-600 dark:text-emerald-400';
+    const label = escapeHtml(p.name) + (p.model ? ' · ' + escapeHtml(p.model) : '') + (c.qty > 1 ? ' (×' + c.qty + ')' : '');
+    compRowsHtml += '<div class="flex justify-between py-0.5"><span>' + label + '</span><span class="font-semibold ' + tone + '">' + p.stock + ' en stock</span></div>';
+  }
+
+  const eff = comboEffectiveStock(combo);
+  const effTone = eff <= 0 ? 'text-rose-600' : 'text-emerald-600 dark:text-emerald-400';
+  const noStockBanner = eff <= 0 ? '<div class="mb-3 px-3 py-2 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 text-xs rounded-xl">Sin stock suficiente para armar el combo. Revisá el stock de los componentes.</div>' : '';
+  const sellPrice = combo.sellPrice || 0;
+
+  openModal(
+    '<h3 class="text-lg font-semibold mb-1">Vender combo</h3>' +
+    '<p class="text-sm text-slate-500 mb-3">' + escapeHtml(combo.name) + '</p>' +
+    noStockBanner +
+    '<div class="mb-4 p-3 bg-slate-50 dark:bg-white/5 rounded-xl text-sm">' +
+      '<div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Componentes que se descontarán</div>' +
+      compRowsHtml +
+      '<div class="mt-2 pt-2 border-t border-slate-200 dark:border-white/10 flex justify-between font-semibold">' +
+        '<span>Combos disponibles</span>' +
+        '<span class="' + effTone + '">' + eff + '</span>' +
+      '</div>' +
+    '</div>' +
+    '<div class="space-y-3 text-sm">' +
+      '<div class="grid grid-cols-2 gap-3">' +
+        '<div><label class="block mb-1">Cantidad</label><input id="scQty" type="number" min="1" max="' + eff + '" value="1" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/></div>' +
+        '<div><label class="block mb-1">Precio venta unitario</label><input id="scUnit" type="number" min="0" value="' + sellPrice + '" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/></div>' +
+      '</div>' +
+      '<div id="scPreview" class="text-xs text-slate-500"></div>' +
+      '<div class="pt-3 border-t border-slate-200 dark:border-white/10">' +
+        '<div class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Cliente</div>' +
+        '<div class="grid grid-cols-2 gap-3">' +
+          '<div class="col-span-2"><label class="block mb-1">Celular *</label><input id="scPhone" autocomplete="off" placeholder="11 5555-5555" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/><div id="scHint" class="text-xs text-slate-500 mt-1"></div></div>' +
+          '<div><label class="block mb-1">Nombre *</label><input id="scFirst" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/></div>' +
+          '<div><label class="block mb-1">Apellido</label><input id="scLast" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/></div>' +
+        '</div>' +
+      '</div>' +
+      '<div><label class="block mb-1">Nota (opcional)</label><input id="scNote" class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10"/></div>' +
+    '</div>' +
+    '<div class="flex justify-end gap-2 mt-5">' +
+      '<button id="cancel" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/10 text-sm">Cancelar</button>' +
+      '<button id="save" class="px-4 py-2 rounded-xl bg-ivory-500 hover:bg-ivory-700 text-white text-sm font-medium">Registrar venta</button>' +
+    '</div>',
+    function() {
+      var scQty = document.getElementById('scQty');
+      var scUnit = document.getElementById('scUnit');
+      var scPreview = document.getElementById('scPreview');
+      var scPhone = document.getElementById('scPhone');
+      var scFirst = document.getElementById('scFirst');
+      var scLast = document.getElementById('scLast');
+      var scHint = document.getElementById('scHint');
+      var scNote = document.getElementById('scNote');
+      var btnCancel = document.getElementById('cancel');
+      var btnSave = document.getElementById('save');
+
+      function refresh() {
+        var q = parseInt(scQty.value) || 0;
+        var u = parseFloat(scUnit.value) || 0;
+        scPreview.innerHTML = 'Total: <b>' + fmt.format(u * q) + '</b> · Combos disponibles: ' + eff;
+      }
+      scQty.oninput = refresh;
+      scUnit.oninput = refresh;
+      refresh();
+
+      scPhone.oninput = function() {
+        var v = scPhone.value.trim();
+        if (!v) { scHint.textContent = ''; return; }
+        var found = state.customers.find(function(c) { return c.phone === v; });
+        if (found) {
+          scFirst.value = found.firstName;
+          scLast.value = found.lastName;
+          scHint.innerHTML = '<span class="text-emerald-600">Cliente existente: ' + escapeHtml(found.firstName) + ' ' + escapeHtml(found.lastName) + '</span>';
+        } else {
+          scHint.innerHTML = '<span class="text-slate-500">Cliente nuevo — se creará al guardar.</span>';
+        }
+      };
+
+      btnCancel.onclick = closeModal;
+
+      btnSave.onclick = function() {
+        var q = parseInt(scQty.value) || 0;
+        var u = parseFloat(scUnit.value) || 0;
+        var currentEff = comboEffectiveStock(combo);
+        if (currentEff <= 0) return toast('Sin stock suficiente para armar el combo', 'err');
+        if (q <= 0) return toast('Cantidad inválida', 'err');
+        if (q > currentEff) return toast('Stock insuficiente. Máximo ' + currentEff + ' combos', 'err');
+        var phoneV = scPhone.value.trim();
+        var firstV = scFirst.value.trim();
+        var lastV = scLast.value.trim();
+        if (!phoneV) return toast('El celular del cliente es obligatorio', 'err');
+        if (!firstV) return toast('El nombre del cliente es obligatorio', 'err');
+        var customer = state.customers.find(function(c) { return c.phone === phoneV; });
+        if (customer) {
+          if (firstV && firstV !== customer.firstName) customer.firstName = firstV;
+          if (lastV && lastV !== customer.lastName) customer.lastName = lastV;
+        } else {
+          customer = { id: uid(), firstName: firstV, lastName: lastV, phone: phoneV, createdAt: new Date().toISOString() };
+          state.customers.push(customer);
+        }
+        var date = new Date().toISOString();
+        var note = scNote.value.trim();
+        var movs = [];
+        var affectedProductIds = new Set();
+        components.forEach(function(comp, idx) {
+          var p = state.products.find(function(x) { return x.id === comp.productId; });
+          if (!p) return;
+          var totalQty = q * (comp.qty || 1);
+          var mov = {
+            id: uid(), type: 'out', productId: p.id, qty: totalQty,
+            unitPrice: idx === 0 ? u : 0,
+            unitCost: p.buyPrice,
+            date: date,
+            note: note || 'Combo: ' + combo.name,
+            customerId: customer.id,
+          };
+          p.stock -= totalQty;
+          state.movements.push(mov);
+          movs.push(mov);
+          affectedProductIds.add(p.id);
+        });
+        save(); closeModal(); render();
+        toast('Venta de combo registrada · ' + q + ' combo' + (q === 1 ? '' : 's'));
+        if (cloudReady) {
+          var ops = [cloudUpsertCustomer(customer)];
+          for (var m of movs) ops.push(cloudInsertMovement(m));
+          affectedProductIds.forEach(function(pid) {
+            var pp = state.products.find(function(p) { return p.id === pid; });
+            if (pp) ops.push(cloudUpsertProduct(pp));
+          });
+          Promise.all(ops).catch(function(e) { toast('Error nube: ' + e.message, 'err'); });
+        }
+      };
+    },
+    'lg'
+  );
 }
 
 // =====================================================================
@@ -2107,6 +2476,15 @@ function bindViewEvents() {
         }
       }
       else if (a==='new-inbound') ingresoForm();
+      else if (a==='new-combo') comboForm(null);
+      else if (a==='edit-combo') { const c=(state.combos||[]).find(x=>x.id===id); if(c) comboForm(c); }
+      else if (a==='delete-combo') {
+        const c=(state.combos||[]).find(x=>x.id===id);
+        if(c && confirm(`¿Eliminar el combo "${c.name}"? Los productos y movimientos existentes no se modifican.`)){
+          state.combos=state.combos.filter(x=>x.id!==id); save(); render(); toast('Combo eliminado');
+        }
+      }
+      else if (a==='sell-combo') { const c=(state.combos||[]).find(x=>x.id===id); if(c) sellComboModal(c); }
       else if (a==='seed-fundas') seedFundasForm();
       else if (a==='bulk-price') {
         const kind = b.dataset.bulk; // 'silicona' | 'magsafe'
